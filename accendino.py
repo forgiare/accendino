@@ -198,10 +198,11 @@ class QMakeBuildItem(MakeBasedItem, BuildItem):
 class AutogenBuildItem(MakeBasedItem, BuildItem):
     ''' autotools/autogen.sh based build item '''
     
-    def __init__(self, name, deps, gitUri, autogenArgs=[], noconfigure=False, configureArgs=[], runInstallDir=None, extraEnv={}, provides=[]):
+    def __init__(self, name, deps, gitUri, autogenArgs=[], noconfigure=False, isAutogen=True, configureArgs=[], runInstallDir=None, extraEnv={}, provides=[]):
         BuildItem.__init__(self, name, deps, gitUri, extraEnv, provides)
         MakeBasedItem.__init__(self, True, runInstallDir)
         
+        self.isAutogen = isAutogen
         self.autogenArgs = autogenArgs
         self.noconfigure = noconfigure
         self.configureArgs = configureArgs
@@ -213,14 +214,18 @@ class AutogenBuildItem(MakeBasedItem, BuildItem):
         os.makedirs(self.odir, exist_ok=True)
         os.chdir(self.odir)
         
-        cmd = [os.path.join(self.sourceDir, "autogen.sh")] + self.autogenArgs
+        if self.isAutogen:
+            cmd = [os.path.join(self.sourceDir, "autogen.sh")] + self.autogenArgs
+        else:
+            cmd = [os.path.join(self.sourceDir, "bootstrap.sh")]
+
         if self.noconfigure:
             cmd += ["--prefix={prefix}"]
-            
+
         cmd = self._expandConfigInlist(cmd, config)
                 
         env = self._computeEnv(config, self.extraEnv)  
-        completedProc = subprocess.run(cmd, env=env)
+        completedProc = subprocess.run(cmd, env=env, cwd=self.sourceDir)
         if completedProc.returncode != 0:
             print(" * error running autogen.sh")
             return False
@@ -343,7 +348,7 @@ class RpmManager(PackageManager):
         return os.system(cmd) == 0
     
 
-def help(args, isError):
+def doHelp(args, isError):
     print("usage: {0} [--help] [--prefix=<prefix>] [--debug] [--targets=<targets>] [--build-type=<type>]".format(args[0]))
     print("\t--help: shows this help")
     print("\t--debug: show verbose information of building")
@@ -408,6 +413,9 @@ OGON_opts=['-DWITH_OPENH264=on']
 EXTRA_ENV={'PKG_CONFIG_PATH': '{prefix}/{libdir}/pkgconfig/:{prefix}/lib/x86_64-linux-gnu/pkgconfig/'}
 XOGON_ENV=EXTRA_ENV.copy()
 XOGON_ENV.update({'NOCONFIGURE': '10'})
+PA_ENV=EXTRA_ENV.copy()
+PA_ENV.update({'NOCONFIGURE': 'YES'})
+
 
 freerdp_ubuntu_debian_base = ['git', 'build-essential', 'cmake']
 freerdp_ubuntu_debian_common = ['xsltproc', 'libssl-dev', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev', 
@@ -429,66 +437,78 @@ freerdp_fedora_redhat_base = ['ninja-build', 'cups-devel', 'dbus-glib-devel', 'd
 
 ITEMS_PKG = {
     'Ubuntu 16.04': {
-        'ogon-freerdp2': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
+        'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
     },
     
     'Ubuntu 18.04': {
-        'ogon-freerdp2': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
+        'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
     },
 
     'Ubuntu': {
         'freerdp2': freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common,
-        'ogon-freerdp2': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
-        'ogon-apps-freerdp2': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
-        'ogon-qt-platform-freerdp2':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
-        'ogon-xserver-freerdp2': xogon_ubuntu_debian_base,
+        'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
+        'ogon-apps': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
+        'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
+        'ogon-xserver': xogon_ubuntu_debian_base,
         'libxfont': xogon_ubuntu_debian_base,
+        'ogon-channels': ['libfuse-dev'],
     },
 
     'Debian': {
         'freerdp2': freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common,
-        'ogon-freerdp2': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
-        'ogon-apps-freerdp2': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
-        'ogon-qt-platform-freerdp2':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
-        'ogon-xserver-freerdp2': xogon_ubuntu_debian_base,
+        'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
+        'ogon-apps': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
+        'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
+        'ogon-xserver': xogon_ubuntu_debian_base,
         'libxfont': xogon_ubuntu_debian_base,
+        'ogon-channels': ['libfuse-dev'],
     },
 
     'Fedora': {
         'freerdp2': freerdp_fedora_redhat_base,        
-        'ogon-freerdp2': ['protobuf-devel', 'protobuf-compiler', 'protobuf-c-devel', 'pam-devel', 'boost-devel', 'dbus-devel', 'patch', 'curl', 'unzip'],
-        'ogon-apps-freerdp2': ['qt5-qttools-devel'],
-        'ogon-qt-platform-freerdp2':['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts', 
+        'ogon': ['protobuf-devel', 'protobuf-compiler', 'protobuf-c-devel', 'pam-devel', 'boost-devel', 'dbus-devel', 'patch', 'curl', 'unzip'],
+        'ogon-apps': ['qt5-qttools-devel'],
+        'ogon-qt-platform':['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts', 
                                      'qt5-qtbase-static', 'qt5-qtbase-devel', 'qt5-qtbase-private-devel'],
-        'ogon-xserver-freerdp2': ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 
+        'ogon-xserver': ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 
                                   'libXpresent-devel', 'libXres-devel', 'libXScrnSaver-devel', 'libXxf86misc-devel', 
                                   'xorg-x11-xtrans-devel', 'xorg-x11-server-devel', 'xorg-x11-font-utils', 'libXfont-devel', 
                                   'xorg-x11-xkb-utils', 'libxshmfence-devel', 'mesa-dri-drivers'],
         #'libxfont': xogon_ubuntu_debian_base,
+        'ogon-channels': ['fuse-devel'],
     },
 
 }
 
 BUILD_ITEMS = [
-    CMakeBuildItem('freerdp2', [], ('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'), FREERDP_opts),
-    CMakeBuildItem('ogon-freerdp2', ['freerdp2'], ('https://github.com/ogon-project/ogon.git', 'master'), 
+    CMakeBuildItem('freerdp2', [], ('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'), FREERDP_opts, provides='freerdp'),
+    CMakeBuildItem('ogon', ['freerdp'], ('https://github.com/ogon-project/ogon.git', 'master'), 
                                     OGON_opts, parallelJobs=False),
-    CMakeBuildItem('ogon-apps-freerdp2', ['ogon-freerdp2'], ('https://github.com/ogon-project/ogon-apps.git', 'master')),
-    QMakeBuildItem('ogon-qt-platform-freerdp2', ['ogon-apps-freerdp2'], ('https://github.com/ogon-project/ogon-platform-qt.git', 'master'), EXTRA_ENV),
-    CMakeBuildItem('ogon-greeter-freerdp2', ['ogon-qt-platform-freerdp2', 'ogon-freerdp2'], ('https://github.com/ogon-project/ogon-greeter-qt.git', 'master')),
+    CMakeBuildItem('ogon-apps', ['ogon'], ('https://github.com/ogon-project/ogon-apps.git', 'master')),
+    QMakeBuildItem('ogon-qt-platform', ['ogon-apps'], ('https://github.com/ogon-project/ogon-platform-qt.git', 'master'), EXTRA_ENV),
+    CMakeBuildItem('ogon-greeter', ['ogon-qt-platform', 'ogon'], ('https://github.com/ogon-project/ogon-greeter-qt.git', 'master')),
     
     AutogenBuildItem('libxfont', [], ('https://gitlab.freedesktop.org/xorg/lib/libxfont.git', 'libXfont-1.5-branch'), noconfigure=True),
     
-    AutogenBuildItem('ogon-xserver-freerdp2', ['ogon-freerdp2'], ('https://github.com/ogon-project/xserver-ogon.git', 'master'),  
+    AutogenBuildItem('ogon-xserver', ['ogon'], ('https://github.com/ogon-project/xserver-ogon.git', 'master'),  
         extraEnv=XOGON_ENV, runInstallDir='hw/xogon',
         configureArgs=['--disable-xfree86-utils', '--disable-linux-acpi', '--disable-linux-apm', '--disable-xorg', '--disable-xvfb',
                        '--disable-xquartz', '--disable-standalone-xpbproxy', '--disable-xwin', '--disable-glamor', '--disable-kdrive',
                        '--disable-xephyr', '--disable-xfake', '--disable-xfbdev', '--disable-kdrive-kbd', '--disable-kdrive-mouse',
                        '--disable-kdrive-evdev', '--with-vendor-web="http://www.ogon-project.com"', '--disable-xquartz', '--disable-xnest',
                        '--disable-xorg', '--enable-xogon', '--disable-xwayland', '--with-xkb-output=/usr/share/X11/xkb/compiled',
-                       '--with-xkb-path=/usr/share/X11/xkb', '--with-xkb-bin-directory=/usr/bin/', 'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/']),
+                       '--with-xkb-path=/usr/share/X11/xkb', '--with-xkb-bin-directory=/usr/bin/', 
+                       'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/']),
     
-    DepsBuildItem('full-ogon-freerdp2', ['ogon-greeter-freerdp2', 'ogon-xserver-freerdp2']),                
+    CMakeBuildItem('ogon-channels', ['ogon'], ('https://github.com/ogon-project/ogon-channels', 'master')),
+    AutogenBuildItem('ogon-pulseaudio', ['ogon'], ('https://github.com/ogon-project/pulseaudio-ogon', 'master'),
+        isAutogen=False, extraEnv=PA_ENV,
+        configureArgs=['--disable-oss-output', '--enable-oss-wrapper', '--disable-alsa', '--disable-jack', '--disable-xen',
+                       '--disable-tests', '--disable-udev', '--enable-ogon', '--disable-glib2', '--disable-avahi',
+                       '--disable-ipv6', '--disable-openssl', '--enable-x11', '--disable-systemd-journal', '--disable-systemd-daemon',
+                       'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/'],
+                     ),
+    DepsBuildItem('full-ogon-freerdp2', ['freerdp2', 'ogon-greeter', 'ogon-xserver', 'ogon-channels', 'ogon-pulseaudio']),
 ]
 
 class AccendinoConfig(object):
@@ -635,7 +655,7 @@ def main(args):
     opts, _extraArgs = getopt.getopt(args[1:], "hd", ["prefix=", "help", "debug", "targets=", "build-type=", "sources="])
     for option, value in opts:
         if option in ('-h', '--help',):
-            return help()
+            return doHelp()
         elif option in ('--prefix',):
             config.prefix = value
         elif option in ('-d', '--debug',):
@@ -644,7 +664,7 @@ def main(args):
             config.buildType = value
             if config.buildType not in BUILD_TYPES:
                 print("invalid build type {0}".format(config.buildType))
-                return help(args, True)     
+                return doHelp(args, True)
         elif option in ('--targets',):
             config.targets = value.split(',')
         elif option in ('--sources',):

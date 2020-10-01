@@ -21,6 +21,12 @@ To quicky install only the Ogon RDP server in `/opt/ogon-dev` in debug mode:
 # python accendino.py --prefix=/opt/ogon-dev --build-type=debug --targets=ogon-freerdp2
 ```
 
+To install _forgiare_ version of Ogon in `/opt/forgiare` in debug mode:
+
+```console
+# python accendino.py --prefix=/opt/forgiare --build-type=debug --sources=forgiare.conf
+```
+
 
 ## Custom source file
 _Accendino_ can also be used to pull your own sources and build a custom version of Ogon, to achieve this you
