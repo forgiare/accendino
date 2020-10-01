@@ -406,6 +406,14 @@ def detectPlatform(debug):
             
     return (distribId, distribVersion) 
 
+def pkgItemsCopy(dest, targetName, srcName):
+    for distrib, items in ITEMS_PKG.items():
+        if srcName in items:
+            if not distrib in dest:
+                dest[distrib] = {}
+            dest[distrib][targetName] = items[srcName]
+
+
 BUILD_TYPES = ('release', 'debug',)
 
 FREERDP_opts=['-DWITH_SERVER=ON', '-DWITH_GSTREAMER_1_0=ON', '-DCHANNEL_URBDRC=OFF']
@@ -452,16 +460,8 @@ ITEMS_PKG = {
         'ogon-xserver': xogon_ubuntu_debian_base,
         'libxfont': xogon_ubuntu_debian_base,
         'ogon-channels': ['libfuse-dev'],
-    },
-
-    'Debian': {
-        'freerdp2': freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common,
-        'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
-        'ogon-apps': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
-        'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
-        'ogon-xserver': xogon_ubuntu_debian_base,
-        'libxfont': xogon_ubuntu_debian_base,
-        'ogon-channels': ['libfuse-dev'],
+        'ogon-pulseaudio': ['libsm-dev', 'libxtst-dev', 'libx11-xcb-dev', 'intltool', 'autopoint', 'libltdl-dev',
+                            'libcap-dev', 'libsm-dev', 'libjson-c-dev', 'libsndfile1-dev'],
     },
 
     'Fedora': {
@@ -477,8 +477,10 @@ ITEMS_PKG = {
         #'libxfont': xogon_ubuntu_debian_base,
         'ogon-channels': ['fuse-devel'],
     },
-
 }
+ITEMS_PKG['Debian'] = ITEMS_PKG['Ubuntu']
+ITEMS_PKG['RedHat'] = ITEMS_PKG['Fedora']
+
 
 BUILD_ITEMS = [
     CMakeBuildItem('freerdp2', [], ('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'), FREERDP_opts, provides='freerdp'),
