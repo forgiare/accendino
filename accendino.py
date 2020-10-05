@@ -59,7 +59,7 @@ class MakeBasedItem(object):
 
 
 class NinjaBasedItem(object):
-    ''' a make based package '''
+    ''' a ninja based package '''
 
     def __init__(self, parallelJobs=True, runInstallDir=None):
         self.parallelJobs = parallelJobs
@@ -365,6 +365,7 @@ def detectPlatform(debug):
     distribId = None
     distribVersion = None
 
+    # try reading LSB file
     try:
         for l in open("/etc/lsb-release", "r").readlines():
             pos = l.find("DISTRIB_ID=")
@@ -461,7 +462,7 @@ ITEMS_PKG = {
         'libxfont': xogon_ubuntu_debian_base,
         'ogon-channels': ['libfuse-dev'],
         'ogon-pulseaudio': ['libsm-dev', 'libxtst-dev', 'libx11-xcb-dev', 'intltool', 'autopoint', 'libltdl-dev',
-                            'libcap-dev', 'libsm-dev', 'libjson-c-dev', 'libsndfile1-dev'],
+                            'libcap-dev', 'libjson-c-dev', 'libsndfile1-dev'],
     },
 
     'Fedora': {
@@ -470,12 +471,14 @@ ITEMS_PKG = {
         'ogon-apps': ['qt5-qttools-devel'],
         'ogon-qt-platform':['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts', 
                                      'qt5-qtbase-static', 'qt5-qtbase-devel', 'qt5-qtbase-private-devel'],
-        'ogon-xserver': ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 
+        'ogon-xserver': ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 'intltoolize',
                                   'libXpresent-devel', 'libXres-devel', 'libXScrnSaver-devel', 'libXxf86misc-devel', 
                                   'xorg-x11-xtrans-devel', 'xorg-x11-server-devel', 'xorg-x11-font-utils', 'libXfont-devel', 
                                   'xorg-x11-xkb-utils', 'libxshmfence-devel', 'mesa-dri-drivers'],
         #'libxfont': xogon_ubuntu_debian_base,
         'ogon-channels': ['fuse-devel'],
+        'ogon-pulseaudio': ['libSM-devel', 'libXtst-devel', 'libxcb-devel', 'intltool', 'libtool-ltdl-devel',
+                            'libcap-devel', 'json-c-devel', 'libsndfile-devel'],
     },
 }
 ITEMS_PKG['Debian'] = ITEMS_PKG['Ubuntu']
@@ -484,8 +487,7 @@ ITEMS_PKG['RedHat'] = ITEMS_PKG['Fedora']
 
 BUILD_ITEMS = [
     CMakeBuildItem('freerdp2', [], ('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'), FREERDP_opts, provides='freerdp'),
-    CMakeBuildItem('ogon', ['freerdp'], ('https://github.com/ogon-project/ogon.git', 'master'), 
-                                    OGON_opts, parallelJobs=False),
+    CMakeBuildItem('ogon', ['freerdp'], ('https://github.com/ogon-project/ogon.git', 'master'), OGON_opts, parallelJobs=False),
     CMakeBuildItem('ogon-apps', ['ogon'], ('https://github.com/ogon-project/ogon-apps.git', 'master')),
     QMakeBuildItem('ogon-qt-platform', ['ogon-apps'], ('https://github.com/ogon-project/ogon-platform-qt.git', 'master'), EXTRA_ENV),
     CMakeBuildItem('ogon-greeter', ['ogon-qt-platform', 'ogon'], ('https://github.com/ogon-project/ogon-greeter-qt.git', 'master')),
