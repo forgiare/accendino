@@ -254,7 +254,11 @@ class MesonBuildItem(NinjaBasedItem, BuildItem):
     def prepare(self, config):
         self.odir = self.buildDir
 
-        os.makedirs(self.odir, exist_ok=True)
+        reconfigure = True
+        if not os.path.exists(self.odir):
+            os.makedirs(self.odir, exist_ok=True)
+            reconfigure = False
+
         os.chdir(self.odir)
 
         cmd = ['meson',
@@ -262,6 +266,8 @@ class MesonBuildItem(NinjaBasedItem, BuildItem):
                '-Dbuildtype={0}'.format(config.mesonBuildType()),
         ]
 
+        if reconfigure:
+            cmd += ["--reconfigure"]
         cmd += self.mesonOpts
         cmd += [self.sourceDir]
 
@@ -437,6 +443,11 @@ ogon_ubuntu_debian_base=['libprotobuf-dev', 'libprotoc-dev', 'protobuf-compiler'
 xogon_ubuntu_debian_base=['autoconf', 'automake', 'xutils-dev', 'libtool', 'libpixman-1-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev',
     'x11proto-dri3-dev', 'x11proto-present-dev', 'x11proto-resource-dev', 'x11proto-scrnsaver-dev', 'x11proto-fonts-dev', 
     'x11proto-xf86dri-dev', 'x11proto-xcmisc-dev', 'x11proto-record-dev', 'xfonts-utils', 'x11-xkb-utils']
+xogon_fedora_base = ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 'libXpresent-devel',
+                     'libXres-devel', 'libXScrnSaver-devel', 'xorg-x11-xtrans-devel', 'xorg-x11-server-devel',
+                     'xorg-x11-font-utils', 'libXfont-devel', 'xorg-x11-xkb-utils', 'libxshmfence-devel',
+                     'mesa-dri-drivers']
+
 
 freerdp_fedora_redhat_base = ['ninja-build', 'cups-devel', 'dbus-glib-devel', 'dbus-devel', 'systemd-devel',
   'libuuid-devel', 'pulseaudio-libs-devel', 'gcc-c++', 'libXrandr-devel', 'gsm-devel', 'gcc', 'cmake', 
@@ -471,15 +482,16 @@ ITEMS_PKG = {
         'ogon-apps': ['qt5-qttools-devel'],
         'ogon-qt-platform':['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts', 
                                      'qt5-qtbase-static', 'qt5-qtbase-devel', 'qt5-qtbase-private-devel'],
-        'ogon-xserver': ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 'intltoolize',
-                                  'libXpresent-devel', 'libXres-devel', 'libXScrnSaver-devel', 'libXxf86misc-devel', 
-                                  'xorg-x11-xtrans-devel', 'xorg-x11-server-devel', 'xorg-x11-font-utils', 'libXfont-devel', 
-                                  'xorg-x11-xkb-utils', 'libxshmfence-devel', 'mesa-dri-drivers'],
+        'ogon-xserver': xogon_fedora_base + ['intltoolize', 'libXxf86misc-devel'],
         #'libxfont': xogon_ubuntu_debian_base,
         'ogon-channels': ['fuse-devel'],
         'ogon-pulseaudio': ['libSM-devel', 'libXtst-devel', 'libxcb-devel', 'intltool', 'libtool-ltdl-devel',
                             'libcap-devel', 'json-c-devel', 'libsndfile-devel'],
     },
+
+    'Fedora 33': {
+        'ogon-xserver': xogon_fedora_base + ['intltool', 'libXxf86misc'],
+    }
 }
 ITEMS_PKG['Debian'] = ITEMS_PKG['Ubuntu']
 ITEMS_PKG['RedHat'] = ITEMS_PKG['Fedora']
