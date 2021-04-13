@@ -105,9 +105,12 @@ class BuildItem(DepsBuildItem):
         if os.path.exists(self.sourceDir):
             if config.debug:
                 print("   ==> refreshing git dir {0}".format(self.buildDir))
+            #cmd = ['git', 'pull']
             return True
-        
-        cmd = ['git', 'clone', self.gitUri[0], '-b', self.gitUri[1], self.sourceDir]
+        else:
+            if config.debug:
+                print("   ==> checking out repo in {0}".format(self.buildDir))
+            cmd = ['git', 'clone', self.gitUri[0], '-b', self.gitUri[1], self.sourceDir]
         retCode = os.system(' '.join(cmd))
         return retCode == 0
     
@@ -224,8 +227,9 @@ class AutogenBuildItem(MakeBasedItem, BuildItem):
 
         cmd = self._expandConfigInlist(cmd, config)
                 
-        env = self._computeEnv(config, self.extraEnv)  
-        completedProc = subprocess.run(cmd, env=env, cwd=self.sourceDir)
+        env = self._computeEnv(config, self.extraEnv)
+        autoGenRunDir = self.noconfigure and self.buildDir or self.sourceDir
+        completedProc = subprocess.run(cmd, env=env, cwd=autoGenRunDir)
         if completedProc.returncode != 0:
             print(" * error running autogen.sh")
             return False
@@ -470,7 +474,7 @@ ITEMS_PKG = {
         'ogon-apps': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
         'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
         'ogon-xserver': xogon_ubuntu_debian_base,
-        'libxfont': xogon_ubuntu_debian_base,
+        'libxfont': xogon_ubuntu_debian_base + ['libfontenc-dev'],
         'ogon-channels': ['libfuse-dev'],
         'ogon-pulseaudio': ['libsm-dev', 'libxtst-dev', 'libx11-xcb-dev', 'intltool', 'autopoint', 'libltdl-dev',
                             'libcap-dev', 'libjson-c-dev', 'libsndfile1-dev'],
