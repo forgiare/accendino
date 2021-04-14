@@ -465,6 +465,7 @@ ITEMS_PKG = {
     },
     
     'Ubuntu 18.04': {
+        'ogon-xserver': xogon_ubuntu_debian_base + ['libxfont-dev'],
         'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
     },
 
