@@ -476,7 +476,8 @@ ITEMS_PKG = {
         'freerdp2': freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common,
         'ogon': ogon_ubuntu_debian_base + ['libprotobuf-c-dev'],
         'ogon-apps': ['qtbase5-dev', 'qt5-default', 'qttools5-dev', 'qttools5-dev-tools'],
-        'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev', 'qt5-qmake', 'qtbase5-private-dev'],
+        'ogon-qt-platform':['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev',
+                            'qt5-qmake', 'qtbase5-private-dev', 'libqt5opengl5-dev'],
         'ogon-xserver': xogon_ubuntu_debian_base,
         'libxfont': xogon_ubuntu_debian_base + ['libfontenc-dev'],
         'ogon-channels': ['libfuse-dev'],
@@ -746,14 +747,15 @@ def main(args):
             return False
         return True
 
+    exitCode = 0
     for item in buildPlan:
         if isinstance(item, str):
             continue
         if not buildModule(item):
-            break
+            return 1
 
     print("=== finished, OGON installed ===")
-    return 0
+    return exitCode
 
 
 if __name__ == '__main__':
