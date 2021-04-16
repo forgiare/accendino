@@ -417,13 +417,15 @@ def detectPlatform(debug):
             
     return (distribId, distribVersion) 
 
-def pkgItemsCopy(dest, targetName, srcName):
+def pkgItemsCopyExtra(dest, targetName, srcName, extraDeps):
     for distrib, items in ITEMS_PKG.items():
         if srcName in items:
             if not distrib in dest:
                 dest[distrib] = {}
-            dest[distrib][targetName] = items[srcName]
+            dest[distrib][targetName] = items[srcName] + extraDeps
 
+def pkgItemsCopy(dest, targetName, srcName):
+    pkgItemsCopyExtra(dest, targetName, srcName, [])
 
 BUILD_TYPES = ('release', 'debug',)
 
@@ -446,7 +448,8 @@ ogon_ubuntu_debian_base=['libprotobuf-dev', 'libprotoc-dev', 'protobuf-compiler'
     'ssl-cert']
 xogon_ubuntu_debian_base=['autoconf', 'automake', 'xutils-dev', 'libtool', 'libpixman-1-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev',
     'x11proto-dri3-dev', 'x11proto-present-dev', 'x11proto-resource-dev', 'x11proto-scrnsaver-dev', 'x11proto-fonts-dev', 
-    'x11proto-xf86dri-dev', 'x11proto-xcmisc-dev', 'x11proto-record-dev', 'xfonts-utils', 'x11-xkb-utils', 'x11proto-dev']
+    'x11proto-xf86dri-dev', 'x11proto-xcmisc-dev', 'x11proto-record-dev', 'xfonts-utils', 'x11-xkb-utils', 'x11proto-dev',
+    'libdrm-dev', 'libxfont-dev', 'mesa-common-dev']
 xogon_fedora_base = ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 'libXpresent-devel',
                      'libXres-devel', 'libXScrnSaver-devel', 'xorg-x11-xtrans-devel', 'xorg-x11-server-devel',
                      'xorg-x11-font-utils', 'libXfont-devel', 'xorg-x11-xkb-utils', 'libxshmfence-devel',
