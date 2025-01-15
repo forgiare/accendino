@@ -1,0 +1,87 @@
+#
+#    build artifacts to build most of the FreeRDP dependencies under Mac
+#
+#
+
+cmake_flags = []
+if checkDistrib('= Darwin'):
+    DEPLOYMENT_TARGET=12
+    DEPLOYMENT_ARCHs=['x86_64']     # 'arm64',
+
+    OSSL_FLAGS=f'-mmacosx-version-min={DEPLOYMENT_TARGET}'
+    for arch in DEPLOYMENT_ARCHs:
+        OSSL_FLAGS += f' -arch {arch}'
+
+    cmake_flags = [
+        "-DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=ON",
+        "-DWITH_MANPAGES=OFF",
+        "-DBUILD_SHARED_LIBS=ON",
+        f"-DCMAKE_OSX_ARCHITECTURES={';'.join(DEPLOYMENT_ARCHs)}",
+        f"-DCMAKE_OSX_DEPLOYMENT_TARGET={DEPLOYMENT_TARGET}",
+        "-DCMAKE_IGNORE_PATH='/opt/local;/usr/local;/opt/homebrew;/Library;~/Library'"
+    ]
+
+
+ARTIFACTS += [
+    CMakeBuildArtifact('zlib', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1')),
+
+    CMakeBuildArtifact('uriparser', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
+        ['-DURIPARSER_BUILD_DOCS=OFF', '-DURIPARSER_BUILD_TESTS=OFF', '-DURIPARSER_BUILD_TOOLS=OFF']
+    ),
+
+    CMakeBuildArtifact('cJSON', [], GitSource('https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
+        ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF']
+    ),
+
+    CMakeBuildArtifact('opus', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
+        ['-DOPUS_BUILD_SHARED_LIBRARY=ON']
+    ),
+
+    CMakeBuildArtifact('libusb', [],
+        GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.26', shallow_submodules=True, recurse_submodules=True),
+        ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON']
+    ),
+
+    CustomCommandBuildArtifact('openssl', ['zlib'],
+        GitSource('https://github.com/openssl/openssl.git', 'openssl-3.2.0'),
+        prepare_cmds=[
+            ['{srcdir}/config', '--prefix={prefix}', '--libdir={libdir}', 'no-asm', 'no-tests', 'no-docs', 'no-apps', 'zlib']
+        ],
+        build_target='build_sw', install_target='install_sw'
+    ),
+
+    CMakeBuildArtifact('faad2', [],
+        GitSource('https://github.com/knik0/faad2.git', '2.11.1'),
+    ),
+
+    # TODO:
+    #     undefine __SSE2__, symbol clashes with universal build
+    #     CFLAGS="$OSSL_FLAGS -U__SSE2__" LDFLAGS=$OSSL_FLAGS
+    #
+    CustomCommandBuildArtifact('faac', [],
+        GitSource('https://github.com/knik0/faac.git', '1_30'),
+        prepare_src_cmds=[
+            ['{srcdir}/bootstrap']
+        ],
+        prepare_cmds=[
+            ['{srcdir}/configure', '--enable-shared', '--disable-static', '--prefix={prefix}']
+        ]
+    ),
+
+    # TODO: '-Dc_args="$OSSL_FLAGS" -Dc_link_args="$OSSL_FLAGS" -Dcpp_args="$OSSL_FLAGS" -Dcpp_link_args="$OSSL_FLAGS"
+    MesonBuildArtifact('openh264', [],
+        GitSource('https://github.com/cisco/openh264.git', 'v2.4.0'),
+        mesonOpts=['-Doptimization=3', '-Db_lto=true', '-Db_pie=true', '-Dpkgconfig.relocatable=true', '-Dtests=disabled']
+    ),
+
+    CustomCommandBuildArtifact('ffmpeg', [],
+        GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n6.0'),
+        prepare_cmds=[
+            ['{srcdir}/configure', '--prefix={prefix}', '--disable-all', '--enable-shared', '--disable-static',
+                     '--enable-swscale', '--disable-asm', '--disable-libxcb', '--disable-securetransport',
+                     '--disable-xlib', '--enable-cross-compile']
+        ]
+    ),
+
+    DepsBuildArtifact('deps-freerdp-mac', ['zlib', 'uriparser', 'cJSON', 'opus', 'libusb', 'openssl', 'openh264', 'ffmpeg']),
+]

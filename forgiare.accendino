@@ -1,0 +1,27 @@
+include('ogon.accendino')
+
+ARTIFACTS += [
+	CMakeBuildArtifact('ogon-forgiare', ['freerdp2'], GitSource('https://github.com/forgiare/ogon.git', 'future'),
+                                    OGON_opts, parallelJobs=True, provides='ogon',
+        pkgs = pickPkgDeps('ogon')
+    ),
+    AutogenBuildArtifact('ogon-xserver-forgiare', pickDeps('ogon-xserver'),
+		GitSource('https://github.com/linuxrrze/xorg-xserver.git', 'master'),
+        extraEnv=XOGON_ENV, runInstallDir='hw/xogon',
+        configureArgs=['--disable-xfree86-utils', '--disable-linux-acpi', '--disable-linux-apm', '--disable-xorg', '--disable-xvfb',
+                       '--disable-xquartz', '--disable-standalone-xpbproxy', '--disable-xwin', '--disable-glamor', '--disable-kdrive',
+                       '--disable-xephyr', '--with-vendor-web="http://www.ogon-project.com"', '--disable-xquartz', '--disable-xnest',
+                       '--disable-xorg', '--enable-xogon', '--disable-xwayland', '--with-xkb-output=/usr/share/X11/xkb/compiled',
+                       '--with-xkb-path=/usr/share/X11/xkb', '--with-xkb-bin-directory=/usr/bin/',
+                       'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/', 'CFLAGS=-Warray-bounds'],
+                       provides='ogon-xserver',
+        pkgs = pickPkgDeps('ogon-xserver', { UBUNTU_LIKE: ['libsystemd-dev']})
+    ),
+
+	DepsBuildArtifact('forgiare', ['ogon-forgiare', 'ogon-xserver-forgiare', 'full-ogon-freerdp2']),
+]
+
+PROJECT='forgiare'
+DEFAULT_TARGETS='forgiare'
+
+logging.debug('some log')
