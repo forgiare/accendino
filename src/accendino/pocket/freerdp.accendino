@@ -1,0 +1,62 @@
+freerdp_ubuntu_debian_base = ['git', 'build-essential', 'cmake', 'ninja-build']
+freerdp_ubuntu_debian_common = ['xsltproc', 'libssl-dev', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
+              'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
+              'libxml2-dev', 'libxrandr-dev', 'libxi-dev']
+
+
+FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF', '-DCHANNEL_URBDRC=OFF']
+
+freerdp_fedora_redhat_base = ['ninja-build', 'cups-devel', 'dbus-glib-devel', 'dbus-devel', 'systemd-devel',
+  'libuuid-devel', 'pulseaudio-libs-devel', 'gcc-c++', 'libXrandr-devel', 'gsm-devel', 'gcc', 'cmake',
+  'openssl-devel', 'libX11-devel', 'libXext-devel', 'libXinerama-devel', 'libXcursor-devel',
+  'libXi-devel', 'libXdamage-devel', 'libXv-devel', 'libxkbfile-devel', 'alsa-lib-devel',
+   'glib2-devel', 'libusb1-devel'
+]
+
+freerdp_deps = []
+if checkDistrib('= Darwin'):
+    include("freerdp-mac-deps.accendino")
+    freerdp_deps.append('deps-freerdp-mac')
+
+#
+# specifies
+#    freerdp2, freerdp2-static, freerdp2-clientOnly, freerdp2-clientOnly-static,
+#    freerdp3, freerdp3-static, freerdp3-clientOnly, freerdp3-clientOnly-static,
+#
+for isStatic in (True, False,):
+    options = FREERDP_opts[:]
+    provides=['freerdp']
+
+    staticStr = ""
+    if isStatic:
+        options += ['-DBUILD_SHARED_LIBS=OFF ']
+        staticStr = "-static"
+        provides.append('freerdp-static')
+
+    for clientOnly in (True, False,):
+        clientStr = ""
+        if clientOnly:
+            options += ['-DWITH_SERVER=OFF']
+            clientStr = "-clientOnly"
+        else:
+            options += ['-DWITH_SERVER=ON']
+
+        ARTIFACTS += [
+            CMakeBuildArtifact(f'freerdp2{clientStr}{staticStr}', freerdp_deps,
+                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
+                options, provides=provides,
+                pkgs = {
+                    REDHAT_LIKE: freerdp_fedora_redhat_base,
+                    UBUNTU_LIKE: freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common
+                }
+            ),
+
+            CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
+                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
+                options, provides=provides,
+                pkgs = {
+                    REDHAT_LIKE: freerdp_fedora_redhat_base,
+                    UBUNTU_LIKE: freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common
+                }
+            ),
+        ]

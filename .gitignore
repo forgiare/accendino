@@ -1,2 +1,5 @@
 work/
 __pycache__/
+src/accendino.egg-info/
+build/
+dist/

@@ -1,0 +1,106 @@
+include("freerdp.accendino")
+
+OGON_opts=['-DWITH_OPENH264=on']
+EXTRA_ENV={'PKG_CONFIG_PATH': '{prefix}/{libdir}/pkgconfig/:{prefix}/lib/x86_64-linux-gnu/pkgconfig/'}
+XOGON_ENV=EXTRA_ENV.copy()
+XOGON_ENV.update({'NOCONFIGURE': '10'})
+PA_ENV=EXTRA_ENV.copy()
+PA_ENV.update({'NOCONFIGURE': 'YES'})
+
+ogon_ubuntu_debian_base=['libprotobuf-dev', 'libprotoc-dev', 'protobuf-compiler', 'protobuf-c-compiler',
+    'libpam0g-dev', 'libboost-dev', 'libdbus-1-dev', 'automake', 'libpam-systemd', 'ca-certificates',
+    'ssl-cert']
+xogon_ubuntu_debian_base=['autoconf', 'automake', 'xutils-dev', 'libtool', 'libpixman-1-dev',
+     'x11proto-present-dev',  'x11proto-scrnsaver-dev', 'x11proto-fonts-dev',
+    'x11proto-xf86dri-dev', 'x11proto-record-dev', 'xfonts-utils', 'x11-xkb-utils', 'x11proto-dev',
+    'libdrm-dev', 'libxfont-dev', 'mesa-common-dev', 'libpixman-1-dev',
+    DepsAdjuster('< Ubuntu 20.04', add=['x11proto-dri3-dev', 'x11proto-resource-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev', 'x11proto-xcmisc-dev']),
+    DepsAdjuster('< Ubuntu 18.04', add=['libxfont-dev']),
+]
+
+xogon_ubuntu_2204 = ['x11proto-dri3-dev', 'x11proto-resource-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev', 'x11proto-xcmisc-dev']
+
+xogon_fedora_base = ['autoconf', 'automake', 'libtool', 'pixman-devel', 'libXcomposite-devel', 'libXpresent-devel',
+    'libXres-devel', 'libXScrnSaver-devel', 'xorg-x11-xtrans-devel', 'xorg-x11-server-devel',
+    'xorg-x11-font-utils', 'libXfont-devel', 'libxshmfence-devel', 'libdrm-devel',
+    'mesa-dri-drivers', 'intltoolize',
+    DepsAdjuster('< Fedora 41', add=['xorg-x11-xkb-utils', 'libXxf86misc-devel']),
+   ]
+
+
+ARTIFACTS += [
+    CMakeBuildArtifact('ogon', ['freerdp2'], GitSource('https://github.com/ogon-project/ogon.git', 'master'), OGON_opts, parallelJobs=False,
+        pkgs = {
+            UBUNTU_LIKE: ogon_ubuntu_debian_base + [
+                'libprotobuf-c-dev',
+                DepsAdjuster('>= Ubuntu 22.04|>= Debian 12.00', add=['thrift-compiler', 'libthrift-dev'])
+            ],
+            REDHAT_LIKE: ['thrift', 'thrift-devel', 'protobuf-devel', 'protobuf-compiler', 'protobuf-c-devel', 'pam-devel', 'boost-devel', 'dbus-devel', 'patch', 'curl', 'unzip'],
+        }
+    ),
+    CMakeBuildArtifact('ogon-apps', ['ogon'], GitSource('https://github.com/ogon-project/ogon-apps.git', 'master'),
+        pkgs = {
+            UBUNTU_LIKE: ['qtbase5-dev', 'qttools5-dev', 'qttools5-dev-tools'],
+            REDHAT_LIKE: ['qt5-qttools-devel']
+        }
+    ),
+
+    CMakeBuildArtifact('ogon-channels', ['ogon'], GitSource('https://github.com/ogon-project/ogon-channels', 'master'),
+        pkgs = {
+            UBUNTU_LIKE: ['libfuse-dev'],
+            REDHAT_LIKE: ['fuse-devel']
+        }
+    ),
+
+    QMakeBuildArtifact('ogon-qt-platform', ['ogon-apps'], GitSource('https://github.com/ogon-project/ogon-platform-qt.git', 'master'), EXTRA_ENV,
+        pkgs = {
+            UBUNTU_LIKE: ['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev',
+                            'qt5-qmake', 'qtbase5-private-dev', 'libqt5opengl5-dev'],
+            REDHAT_LIKE: ['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts',
+                                     'qt5-qtbase-static', 'qt5-qtbase-devel', 'qt5-qtbase-private-devel', 'rpm-devel'],
+        }),
+    CMakeBuildArtifact('ogon-greeter', ['ogon-qt-platform', 'ogon'], GitSource('https://github.com/ogon-project/ogon-greeter-qt.git', 'master'),
+        pkgs = {
+            UBUNTU_LIKE: [],
+            REDHAT_LIKE: []
+        }
+    ),
+
+    AutogenBuildArtifact('libxfont', [], GitSource('https://gitlab.freedesktop.org/xorg/lib/libxfont.git', 'libXfont-1.5-branch'), noconfigure=True,
+        pkgs = {
+            'Ubuntu': xogon_ubuntu_debian_base + ['libfontenc-dev'],
+        }
+    ),
+
+    AutogenBuildArtifact('ogon-xserver', ['ogon', DepsAdjuster('>= Ubuntu 16.04', add=['libxfont'])],
+        GitSource('https://github.com/ogon-project/xserver-ogon.git', 'master'),
+        extraEnv=XOGON_ENV, runInstallDir='hw/xogon',
+        configureArgs=['--disable-xfree86-utils', '--disable-linux-acpi', '--disable-linux-apm', '--disable-xorg', '--disable-xvfb',
+                       '--disable-xquartz', '--disable-standalone-xpbproxy', '--disable-xwin', '--disable-glamor', '--disable-kdrive',
+                       '--disable-xephyr', '--disable-xfake', '--disable-xfbdev', '--disable-kdrive-kbd', '--disable-kdrive-mouse',
+                       '--disable-kdrive-evdev', '--with-vendor-web="http://www.ogon-project.com"', '--disable-xquartz', '--disable-xnest',
+                       '--disable-xorg', '--enable-xogon', '--disable-xwayland', '--with-xkb-output=/usr/share/X11/xkb/compiled',
+                       '--with-xkb-path=/usr/share/X11/xkb', '--with-xkb-bin-directory=/usr/bin/',
+                       'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/'],
+        pkgs = {
+            UBUNTU_LIKE: xogon_ubuntu_debian_base,
+            REDHAT_LIKE: xogon_fedora_base + ['intltoolize'],
+            'Fedora 33': xogon_fedora_base + ['intltool', 'libXxf86misc'],
+        }
+    ),
+
+    AutogenBuildArtifact('ogon-pulseaudio', ['ogon'],
+        GitSource('https://github.com/ogon-project/pulseaudio-ogon', 'master', depth=10), # needs depth=10 as it is used to determine the git revision
+        isAutogen=False, extraEnv=PA_ENV,
+        configureArgs=['--disable-oss-output', '--enable-oss-wrapper', '--disable-alsa', '--disable-jack', '--disable-xen',
+                       '--disable-tests', '--disable-udev', '--enable-ogon', '--disable-glib2', '--disable-avahi',
+                       '--disable-ipv6', '--disable-openssl', '--enable-x11', '--disable-systemd-journal', '--disable-systemd-daemon',
+                       'LDFLAGS=-Wl,-rpath={prefix}/{libdir}:{prefix}/lib/x86_64-linux-gnu/'],
+        pkgs = {
+            UBUNTU_LIKE: ['libsm-dev', 'libxtst-dev', 'libx11-xcb-dev', 'intltool', 'autopoint', 'libltdl-dev', 'libcap-dev', 'libjson-c-dev', 'libsndfile1-dev'],
+            REDHAT_LIKE: ['libSM-devel', 'libXtst-devel', 'libxcb-devel', 'intltool', 'libtool-ltdl-devel', 'libcap-devel', 'json-c-devel', 'libsndfile-devel'],
+        }
+    ),
+
+    DepsBuildArtifact('full-ogon-freerdp2', ['freerdp2', 'ogon-greeter', 'ogon-xserver', 'ogon-channels', 'ogon-pulseaudio']),
+]
