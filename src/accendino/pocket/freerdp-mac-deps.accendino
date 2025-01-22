@@ -71,7 +71,10 @@ ARTIFACTS += [
     # TODO: '-Dc_args="$OSSL_FLAGS" -Dc_link_args="$OSSL_FLAGS" -Dcpp_args="$OSSL_FLAGS" -Dcpp_link_args="$OSSL_FLAGS"
     MesonBuildArtifact('openh264', [],
         GitSource('https://github.com/cisco/openh264.git', 'v2.4.0'),
-        mesonOpts=['-Doptimization=3', '-Db_lto=true', '-Db_pie=true', '-Dpkgconfig.relocatable=true', '-Dtests=disabled']
+        mesonOpts=['-Doptimization=3', '-Db_lto=true', '-Db_pie=true', '-Dpkgconfig.relocatable=true', '-Dtests=disabled'],
+        pkgs = {
+            "Darwin": ['nasm', 'meson']
+        }
     ),
 
     CustomCommandBuildArtifact('ffmpeg', [],
