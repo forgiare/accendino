@@ -47,19 +47,26 @@ file give an example of such capacity, it will substitute the official _ogon_ re
 
 _Accendino_ reads a source file and interprets it as a python file and when done it will search for these variables:
 
-* `DEFAULT_TARGETS` : contains the default build artifacts to build when no target is given on the command line (coma separated string);
-* `ARTIFACTS` : contains a list of build artifacts;
-* `PROJECT` : an optional project name, it allows to store all the build items (sources and binaries) in a specific directory;
+* `DEFAULT_TARGETS : str` : contains the default build artifacts to build when no target is given on the command line (coma separated string);
+* `ARTIFACTS : List[Any]` : contains a list of build artifacts;
+* `PROJECT : str` : an optional project name, it allows to store all the build items (sources and binaries) in a specific directory. Like the `--project` command line argument;
+* `CROSS_PLATFORM_FILE_CHOOSER : Callable` : a function with the signature `(builder: str, localDistrib : str, distrib : str, arch: str) -> str`, that aims to return the path for
+     a cross compilation file for the given `builder` (can be `cmake` or `meson` for now) and the given arch. If not specified it contains a default function that
+     will work for `mingw[32|64]` builds
 
 When interpreting the source file _Accendino_ provides some useful variables and functions to the source file:
 
 ### Variables
 
-* `accendinoVersion`: the version of _Accendino_
-* `distribId`: the distribution id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` (for MacOsX)
-* `distribVersion`: the version associated with the distribution in `distribId`
-* `UBUNTU_LIKE`: contains `Debian|Ubuntu` a shortcut for dpkg based distributions
-* `REDHAT_LIKE`: contains `Fedora|Redhat` a shortcut for rpm based distributions
+* `accendinoVersion : str`: the version of _Accendino_
+* `distribId : str`: the local distribution id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` (for MacOsX)
+* `distribVersion : str`: the version associated with the distribution in `distribId`
+* `targetArch : str`: the destination architecture `x86_64`, `i686`, ...
+* `targetDistribId : str`: the destination target id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` or `mingw`
+* `crossCompilation : bool`: tells if the build is any kind of cross compilation
+* `libdir : str`: the library directory to use for this distribution (typically `lib` or `lib64`)
+* `UBUNTU_LIKE  : str`: contains `Debian|Ubuntu` a shortcut for dpkg based distributions
+* `REDHAT_LIKE : str`: contains `Fedora|Redhat` a shortcut for rpm based distributions
 
 ### Platform version condition
 

@@ -1,0 +1,44 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building opus
+#
+
+opus_pkgDeps = {
+    UBUNTU_LIKE: ['libopus-dev'],
+    REDHAT_LIKE: ['opus-devel'],
+}
+
+opus_fromSources = False
+
+if targetDistribId == 'mingw':
+    # Checks for some existing distribution packets
+    if checkDistrib('>= Fedora 40'):
+        opus_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-opus'],
+            'Fedora->mingw@x86_64': ['mingw64-opus'],
+        })
+    else:
+        opus_fromSources = True
+
+if targetDistribId in ('Darwin', 'Windows', ):
+    opus_fromSources = True
+
+if opus_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('opus', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
+            ['-DOPUS_BUILD_SHARED_LIBRARY=ON'],
+            provides=['opus-artifact']
+        ),
+
+        CMakeBuildArtifact('opus-static', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
+            ['-DOPUS_BUILD_SHARED_LIBRARY=OFF']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('opus-artifact', [], pkgs=opus_pkgDeps)
+    ]

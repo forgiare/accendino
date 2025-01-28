@@ -19,10 +19,8 @@ class PackageManager:
 
         for p in packages:
             if p not in self.allPackages:
-                logging.debug(f"   {p}: KO")
+                logging.debug(f"   {p}: missing")
                 ret.append(p)
-            else:
-                logging.debug(f"   {p}: OK")
 
         return ret
 

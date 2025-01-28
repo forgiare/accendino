@@ -1,5 +1,17 @@
 # _Accendino_ changelog
 
+## 0.6.0
+
+* add missing dependencies on Mac for FreeRDP deps
+* added support for cross compilation
+* splitted standard accendino files by build artifact
+* accendino automatically add .accendino if not present to included file names by `include()`
+* `PKG_CONFIG_PATH` env variable was not set as it should during builds
+* CMake builder now builds using `cmake --build` and `cmake --install`
+* Meson builder now builds using `meson compile` and `meson install`
+* Build artifacts and `Source` objects now come with their package needs, no need to add `cmake` for a cmake built artifact or `git`
+
+
 ## 0.5.0
 Massive rework of the code base:
 
