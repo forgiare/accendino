@@ -1,0 +1,41 @@
+include('freerdp')
+
+ARTIFACTS += [
+    MesonBuildArtifact('wayland', [], GitSource('https://gitlab.freedesktop.org/wayland/wayland.git', 'master'),
+        pkgs={
+            UBUNTU_LIKE: ['libffi-dev', 'libxml2-dev']
+        }
+    ),
+
+    MesonBuildArtifact('wayland-protocols', ['wayland'], GitSource('https://gitlab.freedesktop.org/wayland/wayland-protocols.git', 'master')
+    ),
+
+    MesonBuildArtifact('wayland-utils', ['wayland'], GitSource('https://gitlab.freedesktop.org/wayland/wayland-utils.git', 'master')
+    ),
+
+    MesonBuildArtifact('libseatd', ['wayland'], GitSource('https://github.com/kennylevinsen/seatd.git', 'master')
+    ),
+
+    MesonBuildArtifact('colord', [], GitSource('https://github.com/hughsie/colord.git', 'main'),
+        mesonOpts=['-Dsane=false', '-Dman=false', '-Dsystemd=false', '-Dbash_completion=false', '-Dudev_rules=false'],
+        pkgs={
+            UBUNTU_LIKE: ['libgusb-dev', 'gtk-doc-tools', 'libdbus-1-dev',
+                          'gettext', 'libglib2.0-dev', 'liblcms2-dev', 'libgudev-1.0-dev',
+                          'libgusb-dev', 'libsqlite3-dev', 'systemd-dev', ]
+        }
+    ),
+
+    MesonBuildArtifact('weston', ['wayland', 'wayland-protocols', 'libseatd', 'colord', 'freerdp3'],
+        GitSource('https://gitlab.freedesktop.org/wayland/weston.git', 'master'),
+        mesonOpts=['-Dbackend-rdp=true',
+                   '-Dremoting=false',
+                  '-Dcolor-management-colord=false', # for now
+        ],
+        pkgs={
+            UBUNTU_LIKE: ['libinput-dev', 'libjpeg-dev', 'liblcms2-dev', 'libgbm-dev']
+        }
+    ),
+
+]
+DEFAULT_TARGETS='weston'
+PROJECT="weston"

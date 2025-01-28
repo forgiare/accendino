@@ -1,0 +1,74 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building openssl
+#
+
+openssl_fromSources = False
+openssl_pkgDeps={
+    UBUNTU_LIKE: ['libssl-dev'],
+    REDHAT_LIKE: ['openssl-devel'],
+    'Windows': ['path/perl'],
+}
+
+
+if targetDistribId == 'mingw':
+    if checkDistrib('>= Fedora 40'):
+        openssl_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-openssl'],
+            'Fedora->mingw@x86_64': ['mingw64-openssl'],
+        })
+    else:
+        openssl_fromSources = True
+
+if targetDistribId == 'Windows':
+    openssl_fromSources = True
+
+if openssl_fromSources:
+    builder = 'make'
+    prepareCmd = ['perl', NativePath('{srcdir}', 'Configure')]
+    if distribId in ('Windows',):
+        # for the native windows build we must pass a configuration item to the perl script, and the build
+        # is done using nmake instead of make
+        builder = 'nmake'
+        configNames = {
+            'i686': 'VC-WIN32',
+            'x86_64': 'VC-WIN64A',
+        }
+        configName = configNames.get(targetArch, None)
+        if configName:
+            prepareCmd.append(configName)
+        else:
+            logging.error(f'arch {targetArch} not handled yet')
+
+    if targetDistribId == 'mingw':
+        opensslFlags = {
+            'i686': ['mingw', '--cross-compile-prefix=i686-w64-mingw32-'],
+            'x86_64': ['mingw64', '--cross-compile-prefix=x86_64-w64-mingw32-']
+        }
+        tok = opensslFlags.get(targetArch, None)
+        if tok:
+            prepareCmd += tok
+        else:
+            logging.error(f'arch {targetArch} not handled yet')
+        tok.append('zlib')
+
+    prepareCmd += ['--prefix={prefix}', '--libdir={libdir}', 'no-asm', 'no-tests', 'no-docs', 'no-apps']
+
+    ARTIFACTS += [
+        CustomCommandBuildArtifact('openssl', ['zlib-artifact'],
+            GitSource('https://github.com/openssl/openssl.git', 'openssl-3.2.0'),
+            prepare_cmds=[
+                prepareCmd
+            ],
+            build_target='build_sw', install_target='install_sw', builder=builder, pkgs=openssl_pkgDeps,
+            provides=['openssl-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('openssl-artifact', [], pkgs=openssl_pkgDeps)
+    ]

@@ -11,9 +11,10 @@ import accendino
 
 from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuildArtifact, DepsBuildArtifact, \
     MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact
-from accendino.localdeps import BrewManager, DpkgManager, RpmManager
+from accendino.localdeps import BrewManager, DpkgManager, RpmManager, WindowsManager, PkgManager, PacmanManager
 from accendino.sources import GitSource
-from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion
+from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
+    NativePath
 
 
 def doHelp(args, is_error) -> int:
@@ -75,6 +76,25 @@ def detectPlatform() -> None:
         except:
             logging.debug(" * failed reading /etc/fedora-version")
 
+    elif plat_system in ('Linux', 'FreeBSD',):
+        # Arch / FreeBSD
+        try:
+            distrib_id = None
+            distrib_ver = None
+            for l in open("/etc/os-release", "rt", encoding='utf8').readlines():
+                l = l.strip()
+                if l.startswith('ID='):
+                    distrib_id = l[3:]
+                elif l.starstwith('BUILD_ID='):
+                    distrib_ver = l[9:]
+                elif l.startswith('VERSION_ID="'):
+                    distrib_ver = l[len('VERSION_ID="') : -1]
+
+                if distrib_id is not None and distrib_ver is not None:
+                    return (distrib_id, distrib_ver)
+        except:
+            logging.debug(" * failed reading /etc/os-release")
+
     elif plat_system in ("Windows", "Darwin",):
         distrib_id = plat_system
         if plat_system == "Windows":
@@ -86,41 +106,58 @@ def detectPlatform() -> None:
 
 
 BUILD_TYPES = ('release', 'debug',)
+ARCHS = ('i686', 'x86_64')
 
+ARCHS_MAP = {
+    'AMD64': 'x86_64', # Windows
+    'amd64': 'x86_64', # FreeBSD
+}
 
 class AccendinoConfig:
     ''' Accendino configuration '''
 
     def __init__(self) -> None:
         ''' '''
-        self.prefix = '/opt/ogon'
+        self.prefix = pathlib.PurePath('/', 'opt', 'ogon')
         self.debug = False
         self.buildType = 'release'
-        self.workDir = os.path.join(os.getcwd(), 'work')
-        self.sourcesDir = os.path.join(self.workDir, 'sources')
-        self.buildsDir = os.path.join(self.workDir, 'build')
+        self.projectName = None
+        self.workDir = pathlib.PurePath(os.getcwd())
+        self.projectDir = None
+        self.sourcesDir = None
+        self.buildsDir = None
         self.targets = None
         self.buildDefs = []
         self.distribId = None
         self.distribVersion = None
         self.checkPackages = True
+        self.doBuild = True
         self.libdir = 'lib'
         self.resumeFrom = None
-        self.projectName = None
         self.maxJobs = 5
+        self.crossCompilation = False
+
+        localMachine = platform.machine()
+        self.localArch = self.targetArch = ARCHS_MAP.get(localMachine, localMachine)
+        self.targetDistrib = None
+        self.pocketDir = pathlib.Path(__file__).parent / 'pocket'
+        self.crossFileDir = pathlib.Path(__file__).parent / 'cross'
+        self.getCrossPlatformFile = None
 
         #
         # populate a search path that has:
         #   * first paths provided in ACCENDINO_PATH,
         #   * then in the accendino pocket
-        self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + \
-            [ os.path.join(pathlib.Path(__file__).parent, 'pocket') ]
+        self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + [ self.pocketDir ]
 
         def includeFn(fname) -> bool:
             ''' '''
             searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
             if fname.startswith('.'):
                 searchPaths = []
+
+            if not fname.endswith('.accendino'):
+                fname = fname + '.accendino'
 
             for p in searchPaths:
                 fpath = os.path.join(p, fname)
@@ -187,6 +224,7 @@ class AccendinoConfig:
             'pickPkgDeps': pickPkgDeps,
             'logging': logging,
             'DepsAdjuster': DepsAdjuster,
+            'NativePath': NativePath,
             'accendinoVersion': accendino.__version__,
             'UBUNTU_LIKE': 'Debian|Ubuntu',
             'REDHAT_LIKE': 'Fedora|Redhat',
@@ -209,39 +247,82 @@ class AccendinoConfig:
             return self.buildType
         raise Exception(f"{self.buildType} build type not supported for meson")
 
-    def getBuildItem(self, name) -> BuildArtifact:
+    def getBuildItem(self, name: str) -> BuildArtifact:
         ''' '''
         for item in self.buildDefs:
             if item.name == name or name in item.provides:
                 return item
         return None
 
-    def setPlatform(self, distribId, distribVersion) -> None:
+    def default_getCrossPlatformFile(self, builder: str, localDistrib: str, targetDistrib : str, arch: str):
+        ''' '''
+        if targetDistrib == 'mingw':
+            bits = '64' if arch == 'x86_64' else '32'
+
+            if localDistrib in ('Redhat', 'Fedora',):
+                return f'/usr/share/mingw/toolchain-mingw{bits}.{builder}'
+
+            if localDistrib in ('Ubuntu', 'Debian',):
+                return str(self.crossFileDir / f'debian-mingw{bits}.{builder}')
+
+        logging.error(f'no cross platform file available for {targetDistrib}/{arch}')
+        return None
+
+    def setPlatform(self, distribId: str, distribVersion: str) -> None:
         self.distribId = distribId
         self.distribVersion = distribVersion
+        if not self.targetDistrib:
+            self.targetDistrib = distribId
 
-        self.context['distribId'] = distribId
-        self.context['distribVersion'] = distribVersion
+        self.crossCompilation = (self.distribId != self.targetDistrib) or (self.localArch != self.targetArch)
 
         if self.distribId in ['Redhat', 'Fedora']:
             self.libdir = 'lib64'
 
+        extraKeys = {
+            'distribId': distribId,
+            'distribVersion': distribVersion,
+            'targetArch': self.targetArch,
+            'targetDistribId': self.targetDistrib,
+            'crossCompilation': self.crossCompilation,
+            'libdir': self.libdir,
+        }
+
+        self.context.update(extraKeys)
+
+
     def treatPlatformPackages(self, buildItems) -> None:
         ''' '''
         # let's compute platform package requirements
-        fullName = self.distribId + " " + self.distribVersion
+        shortName = f"{self.distribId}"
+        longName = f"{self.distribId} {self.distribVersion}"
+        if self.targetDistrib != self.distribId:
+            # cross compiling adjusting the searched names
+            shortName += f'->{self.targetDistrib}@{self.targetArch}'
+            longName += f'->{self.targetDistrib}@{self.targetArch}'
+
         packagesToCheck = []
+        if self.crossCompilation:
+            logging.debug('adding standard cross compilation toolchain')
+            stdCrossCompilers = {
+                'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
+                'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
+                'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
+                'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
+            }
+            packagesToCheck += stdCrossCompilers.get(longName, [])
 
         for item in buildItems:
             if isinstance(item, str):
                 continue
 
-            if fullName in item.pkgs:
-                pkgs = item.pkgs[fullName]
-            elif self.distribId in item.pkgs:
-                pkgs = item.pkgs[self.distribId]
+            if longName in item.pkgs:
+                pkgs = item.pkgs[longName]
+            elif shortName in item.pkgs:
+                pkgs = item.pkgs[shortName]
             else:
-                logging.warning(f" * warning, {item.name} has no package dependency for the current platform")
+                if not self.crossCompilation:
+                    logging.debug(f" * warning, {item.name} has no package dependency for the current platform")
                 continue
 
             packagesToCheck += pkgs[:]
@@ -253,12 +334,20 @@ class AccendinoConfig:
         elif self.distribId in ('Fedora', 'RedHat', ):
             pkgManager = RpmManager()
         elif self.distribId in ('Windows',):
-            pkgManager = None
+            pkgManager = WindowsManager()
         elif self.distribId in ('Darwin',):
             pkgManager = BrewManager()
+        elif self.distribId in ('FreeBSD',):
+            pkgManager = PkgManager()
+        elif self.distribId in ('Arch',):
+            pkgManager = PacmanManager()
 
         if pkgManager:
             toInstall = pkgManager.check(packagesToCheck)
+            if toInstall is None:
+                logging.error(" * package requirements not met")
+                sys.exit(5)
+
             if toInstall:
                 if not pkgManager.installPackages(toInstall):
                     logging.error(" * error during package installation")
@@ -344,15 +433,13 @@ class AccendinoConfig:
                 self.targets = defaultTargets.split(",")
 
         if not self.projectName:
-            self.projectName = self.context.get('PROJECT', None)
+            self.projectName = self.context.get('PROJECT', 'work')
 
-        if self.projectName:
-            self.sourcesDir = os.path.join(self.workDir, self.projectName, 'sources')
-            self.buildsDir = os.path.join(self.workDir, self.projectName, 'build')
-        else:
-            self.sourcesDir = os.path.join(self.workDir, 'sources')
-            self.buildsDir = os.path.join(self.workDir, 'build')
+        self.projectDir = pathlib.PurePath(self.workDir, self.projectName)
+        self.sourcesDir = self.projectDir / 'sources'
+        self.buildsDir = self.projectDir / 'build'
 
+        self.getCrossPlatformFile = self.context.get('CROSS_PLATFORM_FILE_CHOOSER', self.default_getCrossPlatformFile)
         return True
 
 
@@ -386,8 +473,8 @@ def run(args: T.List[str]) -> int:
     config = AccendinoConfig()
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
-        "prefix=", "help", "debug", "no-packages", "targets=", "build-type=",
-        "work-dir=", "resume-from=", "project=", "version"
+        "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=",
+        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "version"
     ])
 
     for option, value in opts:
@@ -399,7 +486,7 @@ def run(args: T.List[str]) -> int:
             return 0
 
         if option in ('--prefix',):
-            config.prefix = value
+            config.prefix = pathlib.PurePath(value)
         elif option in ('-d', '--debug',):
             logging.level('debug')
             config.debug = True
@@ -410,20 +497,34 @@ def run(args: T.List[str]) -> int:
                 return doHelp(args, True)
         elif option in ('--targets',):
             config.targets = value.split(',')
-        elif option in ('--no-packages'):
+        elif option in ('--no-packages',):
             config.checkPackages = False
+        elif option in ('--build-deps',):
+            config.doBuild = False
         elif option in ('--work-dir', ):
-            config.workDir = value
-            config.buildsDir = os.path.join(value, 'build')
-            config.sourcesDir = os.path.join(value, 'sources')
+            config.workDir = pathlib.PurePath(value)
         elif option in ("--resume-from", ):
             config.resumeFrom = value
+        elif option in ("--targetArch", ):
+            if not value in ARCHS:
+                logging.error(f'arch {value} not yet supported')
+                return 1
+            config.targetArch = value
+        elif option in ("--targetDistrib", ):
+            if value == 'mingw32':
+                config.targetDistrib = 'mingw'
+                config.targetArch = 'i686'
+            elif value == 'mingw64':
+                config.targetDistrib = 'mingw'
+                config.targetArch = 'x86_64'
+            else:
+                config.targetDistrib = value
         elif option in ("--project", ):
             config.projectName = value
         else:
             logging.error(f"unknown option {value}")
 
-    logging.info("=== accendino, as OGON installer ===")
+    logging.info("=== accendino ===")
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
@@ -431,6 +532,8 @@ def run(args: T.List[str]) -> int:
         config.sources += ['ogon.conf']
 
     (distribId, distribVersion) = detectPlatform()
+
+
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
 
@@ -480,18 +583,19 @@ def run(args: T.List[str]) -> int:
         return True
 
     exitCode = 0
-    for item in buildPlan:
-        if config.resumeFrom:
-            if item.name != config.resumeFrom:
-                continue
+    if config.doBuild:
+        for item in buildPlan:
+            if config.resumeFrom:
+                if item.name != config.resumeFrom:
+                    continue
 
-            # We've found the item to resume the build from
-            config.resumeFrom = None
+                # We've found the item to resume the build from
+                config.resumeFrom = None
 
-        if not buildModule(item):
-            return 1
+            if not buildModule(item):
+                return 1
 
-    logging.info("=== finished, OGON installed ===")
+    logging.info("=== finished ===")
     return exitCode
 
 def main() -> int:

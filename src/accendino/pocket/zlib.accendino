@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building zlib
+#
+
+zlib_pkgDeps = {
+    UBUNTU_LIKE: ['zlib1g-dev'],
+    REDHAT_LIKE: ['zlib-ng-devel'],
+}
+
+zlib_fromSources = False
+
+if targetDistribId == 'mingw':
+    # Checks for some existing distribution packets
+    if checkDistrib('>= Fedora 40') or (checkDistrib('>= Ubuntu 22.04') and targetArch == 'x86_64'):
+        zlib_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-zlib'],
+            'Fedora->mingw@x86_64': ['mingw64-zlib'],
+            'Ubuntu->mingw@x86_64': ['libz-mingw-w64-dev'],
+        })
+    else:
+        zlib_fromSources = True
+
+if targetDistribId == 'Windows':
+    zlib_fromSources = True
+
+if zlib_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('zlib', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1'),
+            cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
+        ),
+        CMakeBuildArtifact('zlib-static', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1'),
+            cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=OFF']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('zlib-artifact', [], pkgs=zlib_pkgDeps)
+    ]

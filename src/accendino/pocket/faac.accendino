@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building faac
+#
+
+faac_pkgDeps = {
+    UBUNTU_LIKE: ['libfaac-dev'],
+}
+
+faac_fromSources = targetDistribId not in ('Ubuntu', 'Debian',)
+
+if faac_fromSources:
+    ARTIFACTS += [
+       # TODO:
+        #     undefine __SSE2__, symbol clashes with universal build
+        #     CFLAGS="$OSSL_FLAGS -U__SSE2__" LDFLAGS=$OSSL_FLAGS
+        #
+        CustomCommandBuildArtifact('faac', [],
+            GitSource('https://github.com/knik0/faac.git', '1_30'),
+            prepare_src_cmds=[
+                [NativePath('{srcdir}', 'bootstrap')]
+            ],
+            prepare_cmds=[
+                [NativePath('{srcdir}', 'configure'), '--enable-shared', '--disable-static', '--prefix={prefix}']
+            ],
+            provides=['faac-artifact'],
+            pkgs={
+                'Darwin': ['automake', 'autoconf', 'libtool']
+            }
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('faac-artifact', [], pkgs=faac_pkgDeps)
+    ]

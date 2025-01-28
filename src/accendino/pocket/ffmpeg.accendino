@@ -1,0 +1,60 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building ffmpeg
+#
+
+ffmpeg_pkgDeps = {
+    UBUNTU_LIKE: ['libavcodec-dev', 'libavfilter-dev', 'libavformat-dev', 'libavutil-dev', 'libswscale-dev',
+                      'libavdevice-dev', 'libpostproc-dev'],
+    REDHAT_LIKE: ['libavcodec-free-devel', 'libswscale-free-devel'],
+}
+ffmpeg_fromSources = False
+
+if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+    ffmpeg_fromSources = True
+
+if ffmpeg_fromSources:
+    extraArgs = []
+    if crossCompilation:
+        extraArgs.append('--enable-cross-compile')
+        if targetDistribId == 'mingw':
+            flags = {
+                'i686': ['--arch=i686', '--target-os=mingw32', '--cross-prefix=i686-w64-mingw32-'],
+                'x86_64': ['--arch=x86_64', '--target-os=mingw64', '--cross-prefix=x86_64-w64-mingw32-']
+            }
+            extraArgs += flags.get(targetArch, [])
+            extraArgs.append('--disable-mediafoundation')
+
+    if targetDistribId == 'Darwin':
+        extraArgs += ['--enable-shared', '--disable-static',
+            '--enable-swscale', '--disable-asm', '--disable-libxcb',
+            '--disable-xlib', '--enable-avcodec',
+        ]
+
+    nasmForAll = {
+        'Darwin': ['nasm'],
+        'Windows': ['choco/nasm|path/nasm'],
+    }
+
+    for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
+        nasmForAll[f'{distrib}'] = ['nasm']
+        nasmForAll[f'{distrib}->mingw@x86_64'] = ['nasm']
+
+    ARTIFACTS += [
+        CustomCommandBuildArtifact('ffmpeg', [],
+            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1'),
+            prepare_cmds=[
+                [NativePath('{srcdir}', 'configure'), '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs
+            ],
+            pkgs=nasmForAll,
+            provides=['ffmpeg-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('ffmpeg-artifact', [], pkgs=ffmpeg_pkgDeps)
+    ]

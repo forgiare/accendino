@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libusb
+#
+
+libusb_pkgDeps = {
+    UBUNTU_LIKE: ['libusb-1.0-0-dev'],
+    REDHAT_LIKE: ['libusb1-devel'],
+}
+
+libusb_fromSources = False
+
+if targetDistribId == 'mingw':
+    if checkDistrib('>= Fedora 40'):
+        libusb_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-libusbx'],
+            'Fedora->mingw@x86_64': ['mingw64-libusbx'],
+        })
+    else:
+        libusb_fromSources = True
+
+if targetDistribId == 'Windows':
+    libusb_fromSources = True
+
+if libusb_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('libusb', [],
+            GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.27', shallow_submodules=True, recurse_submodules=True),
+            ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON'],
+            provides=['libusb-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('libusb-artifact', [], pkgs=libusb_pkgDeps)
+    ]

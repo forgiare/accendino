@@ -1,0 +1,73 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building SDL2 libraries
+#
+sdl2_pkgDeps = {
+    UBUNTU_LIKE: ['libsdl2-dev'],
+    REDHAT_LIKE: ['SDL2-devel'],
+}
+
+sdl2_image_pkgDeps = {
+    UBUNTU_LIKE: ['libsdl2-image-dev'],
+    REDHAT_LIKE: ['SDL2_image-devel'],
+}
+
+sdl2_ttf_pkgDeps = {
+    UBUNTU_LIKE: ['libsdl2-ttf-dev'],
+    REDHAT_LIKE: ['SDL2_ttf-devel'],
+}
+
+sdl2_fromSource = True
+
+if targetDistribId in ('Ubuntu', 'Debian', 'Redhat', 'Fedora'):
+    sdl2_fromSource = False
+
+elif targetDistribId == 'mingw':
+    # Checks for some existing distribution packets
+    if checkDistrib('>= Fedora 40'):
+        sdl2_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL2'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL2'],
+        })
+
+        sdl2_image_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL2_image'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL2_image'],
+        })
+
+        sdl2_ttf_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL2_ttf'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL2_ttf'],
+        })
+        sdl2_fromSource = False
+
+
+if sdl2_fromSource:
+    ARTIFACTS += [
+        CMakeBuildArtifact('SDL2', [], GitSource('https://github.com/libsdl-org/SDL.git', 'release-2.30.4'),
+            ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],
+            provides=['SDL2-artifact']
+        ),
+
+        CMakeBuildArtifact('SDL2_ttf', ['zlib-artifact', 'SDL2'],
+            GitSource('https://github.com/libsdl-org/SDL_ttf.git', 'release-2.22.0', shallow_submodules=True, recurse_submodules=True),
+            ['-DSDL2TTF_HARFBUZZ=ON', '-DSDL2TTF_FREETYPE=ON', '-DSDL2TTF_VENDORED=ON', '-DFT_DISABLE_ZLIB=OFF', '-DSDL2TTF_SAMPLES=OFF'],
+            provides=['SDL2_ttf-artifact']
+        ),
+
+        CMakeBuildArtifact('SDL2_image', ['SDL2'],
+            GitSource('https://github.com/libsdl-org/SDL_image.git', 'release-2.8.2', shallow_submodules=True, recurse_submodules=True),
+            ['-DSDL2IMAGE_SAMPLES=OFF', '-DSDL2IMAGE_DEPS_SHARED=OFF'],
+            provides=['SDL2_image-artifact']
+        )
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('SDL2-artifact', [], pkgs=sdl2_pkgDeps),
+        DepsBuildArtifact('SDL2_image-artifact', [], pkgs=sdl2_image_pkgDeps),
+        DepsBuildArtifact('SDL2_ttf-artifact', [], pkgs=sdl2_ttf_pkgDeps),
+    ]
