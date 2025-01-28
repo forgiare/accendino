@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building openssl
+#
+
+openssl_fromSources = False
+openssl_pkgDeps={
+    UBUNTU_LIKE: ['libssl-dev'],
+    REDHAT_LIKE: ['openssl-devel'],
+}
+
+
+if targetDistribId == 'mingw':
+    if checkDistrib('>= Fedora 40'):
+        openssl_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-openssl'],
+            'Fedora->mingw@x86_64': ['mingw64-openssl'],
+        })
+    else:
+        openssl_fromSources = True
+
+if targetDistribId == 'Windows':
+    openssl_fromSources = True
+
+if openssl_fromSources:
+    crossArgs = []
+    if targetDistribId == 'mingw':
+        opensslFlags = {
+            'i686': ['mingw', '--cross-compile-prefix=i686-w64-mingw32-'],
+            'x86_64': ['mingw64', '--cross-compile-prefix=x86_64-w64-mingw32-']
+        }
+        tok = opensslFlags.get(targetArch, None)
+        if tok:
+            crossArgs += tok
+
+    ARTIFACTS += [
+        CustomCommandBuildArtifact('openssl', ['zlib-artifact'],
+            GitSource('https://github.com/openssl/openssl.git', 'openssl-3.2.0'),
+            prepare_cmds=[
+                ['{srcdir}/config', '--prefix={prefix}', '--libdir={libdir}', 'no-asm', 'no-tests', 'no-docs', 'no-apps', 'zlib'] + crossArgs
+            ],
+            build_target='build_sw', install_target='install_sw',
+            provides=['openssl-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('openssl-artifact', [], pkgs=openssl_pkgDeps)
+    ]

@@ -86,6 +86,7 @@ def detectPlatform() -> None:
 
 
 BUILD_TYPES = ('release', 'debug',)
+ARCHS = ('i686', 'x86_64')
 
 
 class AccendinoConfig:
@@ -108,19 +109,28 @@ class AccendinoConfig:
         self.resumeFrom = None
         self.projectName = None
         self.maxJobs = 5
+        self.crossCompilation = False
+
+        self.localArch = self.targetArch = platform.machine()
+        self.targetDistrib = None
+        self.pocketDir = os.path.join(pathlib.Path(__file__).parent, 'pocket')
+        self.crossFileDir = os.path.join(pathlib.Path(__file__).parent, 'cross')
+        self.getCrossPlatformFile = None
 
         #
         # populate a search path that has:
         #   * first paths provided in ACCENDINO_PATH,
         #   * then in the accendino pocket
-        self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + \
-            [ os.path.join(pathlib.Path(__file__).parent, 'pocket') ]
+        self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + [ self.pocketDir ]
 
         def includeFn(fname) -> bool:
             ''' '''
             searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
             if fname.startswith('.'):
                 searchPaths = []
+
+            if not fname.endswith('.accendino'):
+                fname = fname + '.accendino'
 
             for p in searchPaths:
                 fpath = os.path.join(p, fname)
@@ -209,40 +219,73 @@ class AccendinoConfig:
             return self.buildType
         raise Exception(f"{self.buildType} build type not supported for meson")
 
-    def getBuildItem(self, name) -> BuildArtifact:
+    def getBuildItem(self, name: str) -> BuildArtifact:
         ''' '''
         for item in self.buildDefs:
             if item.name == name or name in item.provides:
                 return item
         return None
 
-    def setPlatform(self, distribId, distribVersion) -> None:
+    def default_getCrossPlatformFile(self, builder: str, distrib : str, arch: str):
+        ''' '''
+        if distrib == 'mingw':
+            bits = (arch == 'x86_64') and '64' or '32'
+            files = {
+                'cmake': f'mingw{bits}-cmake.cmake',
+                'meson': f'mingw{bits}-meson.conf',
+            }
+
+            return os.path.join(self.crossFileDir, files.get(builder, None))
+
+        logging.error(f'no cross platform file available for {distrib}/{arch}')
+        return None
+
+    def setPlatform(self, distribId: str, distribVersion: str) -> None:
         self.distribId = distribId
         self.distribVersion = distribVersion
+        if not self.targetDistrib:
+            self.targetDistrib = distribId
 
-        self.context['distribId'] = distribId
-        self.context['distribVersion'] = distribVersion
+        self.crossCompilation = (self.distribId != self.targetDistrib) or (self.localArch != self.targetArch)
 
         if self.distribId in ['Redhat', 'Fedora']:
             self.libdir = 'lib64'
 
+        extraKeys = {
+            'distribId': distribId,
+            'distribVersion': distribVersion,
+            'targetArch': self.targetArch,
+            'targetDistribId': self.targetDistrib,
+            'crossCompilation': self.crossCompilation,
+            'libdir': self.libdir,
+        }
+
+        self.context.update(extraKeys)
+
+
     def treatPlatformPackages(self, buildItems) -> None:
         ''' '''
         # let's compute platform package requirements
-        fullName = self.distribId + " " + self.distribVersion
+        shortName = f"{self.distribId}"
+        longName = f"{self.distribId} {self.distribVersion}"
+        if self.targetDistrib != self.distribId:
+            # cross compiling adjusting the searched names
+            shortName += f'->{self.targetDistrib}@{self.targetArch}'
+            longName += f'->{self.targetDistrib}@{self.targetArch}'
+
         packagesToCheck = []
 
         for item in buildItems:
             if isinstance(item, str):
                 continue
 
-            if fullName in item.pkgs:
-                pkgs = item.pkgs[fullName]
-            elif self.distribId in item.pkgs:
-                pkgs = item.pkgs[self.distribId]
+            if longName in item.pkgs:
+                pkgs = item.pkgs[longName]
+            elif shortName in item.pkgs:
+                pkgs = item.pkgs[shortName]
             else:
-                logging.warning(f" * warning, {item.name} has no package dependency for the current platform")
-                continue
+                if not self.crossCompilation:
+                    logging.warning(f" * warning, {item.name} has no package dependency for the current platform")
 
             packagesToCheck += pkgs[:]
 
@@ -353,6 +396,7 @@ class AccendinoConfig:
             self.sourcesDir = os.path.join(self.workDir, 'sources')
             self.buildsDir = os.path.join(self.workDir, 'build')
 
+        self.getCrossPlatformFile = self.context.get('CROSS_PLATFORM_FILE_CHOOSER', self.default_getCrossPlatformFile)
         return True
 
 
@@ -387,7 +431,7 @@ def run(args: T.List[str]) -> int:
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "targets=", "build-type=",
-        "work-dir=", "resume-from=", "project=", "version"
+        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "version"
     ])
 
     for option, value in opts:
@@ -418,12 +462,28 @@ def run(args: T.List[str]) -> int:
             config.sourcesDir = os.path.join(value, 'sources')
         elif option in ("--resume-from", ):
             config.resumeFrom = value
+        elif option in ("--targetArch", ):
+            if not value in ARCHS:
+                logging.error(f'arch {value} not yet supported')
+                return 1
+
+            config.targetArch = value
+        elif option in ("--targetDistrib", ):
+            if value == 'mingw32':
+                config.targetDistrib = 'mingw'
+                config.targetArch = 'i686'
+            elif value == 'mingw64':
+                config.targetDistrib = 'mingw'
+                config.targetArch = 'x86_64'
+            else:
+                config.targetDistrib = value
+
         elif option in ("--project", ):
             config.projectName = value
         else:
             logging.error(f"unknown option {value}")
 
-    logging.info("=== accendino, as OGON installer ===")
+    logging.info("=== accendino ===")
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
@@ -431,6 +491,8 @@ def run(args: T.List[str]) -> int:
         config.sources += ['ogon.conf']
 
     (distribId, distribVersion) = detectPlatform()
+
+
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
 
@@ -491,7 +553,7 @@ def run(args: T.List[str]) -> int:
         if not buildModule(item):
             return 1
 
-    logging.info("=== finished, OGON installed ===")
+    logging.info("=== finished ===")
     return exitCode
 
 def main() -> int:

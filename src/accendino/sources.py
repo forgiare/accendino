@@ -7,6 +7,9 @@ from zenlog import log as logging
 class Source:
     ''' Generic code source '''
 
+    def __init__(self, pkgs = {}):
+        self.pkgDeps = pkgs
+
 
 class LocalSource(Source):
     ''' Code source taken from a local directory that is either copied or symlinked '''
@@ -16,6 +19,7 @@ class LocalSource(Source):
             @param srcdir: source directory
             @param do_symlink: tells if the source tree must be symlinked or deep copied
         '''
+        Source.__init__(self)
         self.srcdir = srcdir
         self.symlink = do_symlink
 
@@ -42,8 +46,8 @@ class LocalSource(Source):
 class GitSource(Source):
     ''' Code source that is checked out from git '''
 
-    def __init__(self, url: str, branch: str, depth: int = 1, shallow_submodules: bool = False,
-                 recurse_submodules: bool = False) ->  None:
+    def __init__(self, url: str, branch: str, depth: int = 1, shallow_submodules: bool = True,
+                 recurse_submodules: bool = True) ->  None:
         '''
             @param url: URL of the git repo
             @param branch: branch to checkout
@@ -51,6 +55,11 @@ class GitSource(Source):
             @param shallow_submodules: git --shallow-submodules argument
             @param recurse_submodules: git --recurse-submodules
         '''
+        Source.__init__(self, {
+            'Ubuntu|Debian': ['git'],
+            'Fedora|Redhat': ['git'],
+        })
+
         self.url = url
         self.branch = branch
         self.depth = depth

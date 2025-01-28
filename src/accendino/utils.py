@@ -120,3 +120,34 @@ class DepsAdjuster(ConditionalDep):
         for i in self.dropItems:
             ret.remove(i)
         return ret
+
+
+def treatPackageDeps(pkgs: T.Dict[str, T.Any]) -> T.Dict[str, T.Any]:
+    ''' expands a package deps map, it treats keys that have the form
+        `'k1|k2|k3': V` by splitting and setting V for the k1, k2, k3 keys
+        Note that we expect V to be a list and so you can have concatenation by
+        doing:
+            'k1|k2': V1
+            'k3': V2
+
+        You will end up with
+            'k1': V1 + V2,
+            'k2': V1
+    '''
+    ret = {}
+
+    for k, v in pkgs.items():
+        keys = k.split('|')
+        for key in keys:
+            baseV = ret.get(key, [])
+            ret[key] = baseV + v[:]
+
+    return ret
+
+def mergePkgDeps(d1: T.Dict[str, T.Any], d2: T.Dict[str, T.Any]) -> T.Dict[str, T.Any]:
+    ret = d1.copy()
+    for k, v in d2.items():
+        d1_value = ret.get(k, [])
+        ret[k] = d1_value + v
+
+    return ret

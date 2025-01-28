@@ -4,7 +4,17 @@ import typing as T
 
 from zenlog import log as logging
 from accendino.sources import Source
+from accendino.utils import mergePkgDeps, treatPackageDeps
+import pickle
+import accendino
 
+class BuildStepDump:
+    def __init__(self):
+        self.gitCommit = None
+        self.env = None
+        self.args = None
+
+PREPARE_DUMP_FILE = 'prepare.dump'
 
 class DepsBuildArtifact:
     ''' basic build artifact only for dependencies and platform packages '''
@@ -19,17 +29,7 @@ class DepsBuildArtifact:
         self.name = name
         self.deps = deps
         self.provides = provides
-        self.pkgs = self.treatPackageDeps(pkgs)
-
-    def treatPackageDeps(self, pkgs) -> T.Dict[str, T.Any]:
-        ret = {}
-
-        for k, v in pkgs.items():
-            keys = k.split('|')
-            for key in keys:
-                ret[key] = v[:]
-
-        return ret
+        self.pkgs = treatPackageDeps(pkgs)
 
     def checkout(self, _config) -> bool:
         return True
@@ -65,6 +65,9 @@ class BuildArtifact(DepsBuildArtifact):
             @param prepare_cmds: a command list of commands to run to prepare the build tree.
             @param build_cmds: a command list of commands to run to do the build and install
         '''
+        if srcObj:
+            pkgs = mergePkgDeps(pkgs, srcObj.pkgDeps)
+
         DepsBuildArtifact.__init__(self, name, deps, provides, pkgs)
         self.srcObj = srcObj
         self.sourceDir = None
@@ -74,9 +77,14 @@ class BuildArtifact(DepsBuildArtifact):
         self.prepare_cmds = prepare_cmds[:]
         self.build_cmds = build_cmds[:]
         self.parallelJobs = True
+        self.prepareStateFile = None
 
     def _computeEnv(self, config, extra) -> T.Dict[str, str]:
         r = os.environ.copy()
+
+        # add a PKG_CONFIG_PATH
+        r['PKG_CONFIG_PATH'] = f'{config.prefix}/{config.libdir}/pkgconfig'
+
         for k, v in extra.items():
             r[k] = v.format(prefix=config.prefix, libdir=config.libdir)
         return r
@@ -100,10 +108,11 @@ class BuildArtifact(DepsBuildArtifact):
     def checkout(self, config) -> bool:
         self.sourceDir = os.path.join(config.sourcesDir, self.name)
 
-        self.buildDir = os.path.join(config.buildsDir, self.name, f"build-{config.buildType}")
+        self.buildDir = os.path.join(config.buildsDir, self.name, f"{config.targetDistrib}-{config.targetArch}-{config.buildType}")
         os.makedirs(self.buildDir, exist_ok=True)
 
         self.logFile = os.path.join(self.buildDir, 'build.log')
+        self.prepareStateFile = os.path.join(self.buildDir, PREPARE_DUMP_FILE)
 
         with open(self.logFile, "at", encoding='utf8') as flog:
             return self.srcObj.checkout(self.sourceDir, flog)
@@ -129,6 +138,7 @@ class BuildArtifact(DepsBuildArtifact):
         with open(self.logFile, "at", encoding='utf8') as flog:
             for cmd, path, cmddoc in runItems:
                 cmd = self._expandConfigInlist(cmd, config)
+                logging.debug(f'{cmddoc}: {' '.join(cmd)}')
                 path = self._expandConfigInString(path, config)
 
                 completedProc = subprocess.run(cmd, env=env, cwd=path, stdout=flog, stderr=flog)
@@ -142,7 +152,39 @@ class BuildArtifact(DepsBuildArtifact):
         os.makedirs(self.buildDir, exist_ok=True)
 
         env = self._computeEnv(config, self.extraEnv)
-        return self.runCommands(self.prepare_cmds, env, config)
+
+        dump = BuildStepDump()
+        dump.env = env.copy()
+        dump.args = self.prepare_cmds
+
+        dump2 = None
+        if os.path.exists(self.prepareStateFile):
+            try:
+                with open(self.prepareStateFile, 'rb') as f:
+                    dump2 = pickle.load(f)
+            except:
+                logging.info(f"prepare state file {self.prepareStateFile} exists but we couldn't read it")
+
+        # do the comparison by hand
+        dumpsEnvEqual = dump2 != None
+        if dumpsEnvEqual:
+            for k in dump2.env.keys():
+                if dump.env[k] != dump2.env[k]:
+                    dumpsEnvEqual = False
+
+        if dumpsEnvEqual and dump.args == dump2.args:
+            logging.debug(f"{self.name} is already prepared")
+            return True
+
+        if self.runCommands(self.prepare_cmds, env, config):
+            try:
+                with open(self.prepareStateFile, 'wb') as f:
+                    pickle.dump(dump, f)
+            except Exception as e:
+                logging.info(f"unable to save prepare state file {self.prepareStateFile}: {e}")
+            return True
+
+        return False
 
     def build(self, config) -> bool:
         env = self._computeEnv(config, self.extraEnv)
@@ -210,26 +252,37 @@ class CMakeBuildArtifact(BuildArtifact):
             @param cmakeOpts:
             @param parallelJobs:
         '''
+        pkgs = mergePkgDeps(pkgs, {
+            'Ubuntu|Debian|Redhat|Fedora': ['cmake']
+        })
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
 
     def prepare(self, config) -> bool:
-        cmake_cmd = ['cmake',
-               '-DCMAKE_INSTALL_PREFIX={prefix}',
-               '-DCMAKE_PREFIX_PATH={prefix}',
+        cmake_cmd = ['cmake']
+
+        if config.crossCompilation:
+            cmake_cmd.append(f'-DCMAKE_TOOLCHAIN_FILE={config.getCrossPlatformFile("cmake", config.targetDistrib, config.targetArch)}')
+
+        cmake_cmd += [
+               '-DCMAKE_PREFIX_PATH={prefix}/lib/cmake;{prefix}/lib',
                f'-DCMAKE_BUILD_TYPE={config.cmakeBuildType()}',
-               '-G Ninja'
+               '-DCMAKE_INSTALL_PREFIX={prefix}',
+               '-S', '{srcdir}',
+               '-B', '{builddir}'
         ]
 
         cmake_cmd += self.cmakeOpts
-        cmake_cmd += [ self.sourceDir ]
 
         self.prepare_cmds = [
             (cmake_cmd, '{builddir}', 'running cmake')
         ]
 
-        self.setMakeNinjaCommands(config, 'ninja', parallelJobs=self.parallelJobs)
+        self.build_cmds = [
+            (['cmake', '--build', '{builddir}'], '{builddir}', 'building'),
+            (['cmake', '--install', '{builddir}'], '{builddir}', 'installing'),
+        ]
         return BuildArtifact.prepare(self, config)
 
 
@@ -246,18 +299,26 @@ class QMakeBuildArtifact(BuildArtifact):
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
         '''
+        pkgs = mergePkgDeps(pkgs, {
+            'Ubuntu|Debian': ['qt5-qmake'],
+            'Redhat|Fedora': ['qt5-qtbase-devel']
+        })
+
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
 
         # needed to avoid some g++ link errors on Fedora
         self.extraEnv = extraEnv.copy()
-        self.extraEnv['RPM_ARCH'] = 'bla'
-        self.extraEnv['RPM_PACKAGE_RELEASE'] = 'bla'
-        self.extraEnv['RPM_PACKAGE_VERSION'] = 'bla'
-        self.extraEnv['RPM_PACKAGE_NAME'] = 'bla'
+
+        self.extraEnv.update({
+            'RPM_ARCH': 'bla',
+            'RPM_PACKAGE_RELEASE': 'bla',
+            'RPM_PACKAGE_VERSION': 'bla',
+            'RPM_PACKAGE_NAME': 'bla'
+        })
 
     def prepare(self, config) -> bool:
         cmd = []
-        qtChooser = config.distribId in ['Ubuntu', 'Debian']
+        qtChooser = config.distribId in ('Ubuntu', 'Debian', )
         if qtChooser:
             cmd = ['qtchooser', '-qt=qt5', '--run-tool=qmake']
         else:
@@ -267,7 +328,6 @@ class QMakeBuildArtifact(BuildArtifact):
             'ADDITIONAL_RPATHS={prefix}/{libdir}/',
             'PREFIX={prefix}',
             '{srcdir}'
-
         ]
 
         self.prepare_cmds = [
@@ -298,6 +358,10 @@ class AutogenBuildArtifact(BuildArtifact):
             @param configureArgs:
             @param runInstallDir:
         '''
+        pkgs = mergePkgDeps(pkgs, {
+            'Ubuntu|Debian': ['make', 'build-essential', 'automake', 'autoconf', 'libtool'],
+            'Fedora|Redhat': ['make', 'autoconf', 'automake', 'libtool'],
+        })
 
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
 
@@ -347,6 +411,10 @@ class MesonBuildArtifact(BuildArtifact):
             @param mesonOpts:
             @param parallelJobs:
         '''
+        pkgs = mergePkgDeps(pkgs, {
+            'Ubuntu|Debian|Redhat|Fedora': ['meson', 'ninja-build']
+        })
+
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
         self.mesonOpts = mesonOpts
         self.parallelJobs = parallelJobs
@@ -361,6 +429,9 @@ class MesonBuildArtifact(BuildArtifact):
                '-Dprefix={prefix}',
                f'-Dbuildtype={config.mesonBuildType()}',
         ]
+
+        if config.crossCompilation:
+            cmd += ['--cross-file', config.getCrossPlatformFile('meson', config.targetDistrib, config.targetArch)]
 
         if reconfigure:
             cmd += ["--reconfigure"]
