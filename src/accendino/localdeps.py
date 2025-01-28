@@ -1,6 +1,7 @@
 import os
 import subprocess
 import typing as T
+import re
 
 from zenlog import log as logging
 
@@ -9,22 +10,24 @@ class PackageManager:
     ''' base package manager '''
 
     def __init__(self) -> None:
-        self.allPackages = []
+        self.allPackages = {}
         self.debug = True
 
-    def check(self, packages) -> T.List[str]:
+    def check(self, packages: T.List[str]) -> T.List[str]:
         ret = []
 
         logging.debug(f" * checking required {len(packages)} packages on system:")
 
         for p in packages:
             if p not in self.allPackages:
-                logging.debug(f"   {p}: KO")
+                logging.debug(f"   {p}: missing")
                 ret.append(p)
-            else:
-                logging.debug(f"   {p}: OK")
 
         return ret
+
+    def installPackages(self, _packages: T.List[str]) -> bool:
+        logging.error("not implemented")
+        return False
 
 
 class DpkgManager(PackageManager):
@@ -33,21 +36,23 @@ class DpkgManager(PackageManager):
     def __init__(self) -> None:
         PackageManager.__init__(self)
 
+        pack_re = re.compile(r'ii[^\w]+([^ ]+)[^\w]+([^ ]+)')
         for l in subprocess.Popen(['dpkg', '-l'], stdout=subprocess.PIPE, bufsize=1024).stdout.readlines():
-            if not l.startswith(b'ii  '):
+            matches = pack_re.match(l.decode('utf8'))
+            if not matches:
                 continue
 
-            pos = l.find(b' ', 4)
-            pkgName = l[4:pos].decode('utf-8')
-
+            pkgName = matches.group(1)
             pos = pkgName.find(':')
             if pos != -1:
                 pkgName = pkgName[0:pos]
-            self.allPackages.append(pkgName)
+
+            version = matches.group(2)
+            self.allPackages[pkgName] = version
 
         logging.debug(f" * dpkg package manager, got {len(self.allPackages)} installed packages")
 
-    def installPackages(self, packages) -> bool:
+    def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * installing missing packages: {' '.join(packages)}")
 
         cmd = f"apt-get install -y --no-install-recommends {' '.join(packages)}"
@@ -64,13 +69,14 @@ class RpmManager(PackageManager):
         PackageManager.__init__(self)
 
 
-        for l in subprocess.Popen(['rpm', '-qa', '--qf', '%{NAME}\\n'], stdout=subprocess.PIPE, bufsize=1024) \
+        for l in subprocess.Popen(['rpm', '-qa', '--qf', '%{NAME} %{VERSION}\\n'], stdout=subprocess.PIPE, bufsize=1024) \
                             .stdout.readlines():
-            self.allPackages.append(l.decode('utf-8').strip())
+            tokens = l.decode('utf-8').strip().split(' ', 2)
+            self.allPackages[tokens[0]] = tokens[1]
 
         logging.debug(f" * RPM package manager, got {len(self.allPackages)} installed packages")
 
-    def installPackages(self, packages) -> bool:
+    def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * installing missing packages: {' '.join(packages)}")
 
         cmd = f"dnf -y install {' '.join(packages)}"
@@ -84,15 +90,222 @@ class BrewManager(PackageManager):
 
     def __init__(self) -> None:
         PackageManager.__init__(self)
-        for l in subprocess.Popen(['brew', 'list', '--formulae', '-1'], stdout=subprocess.PIPE, bufsize=1024) \
+        for l in subprocess.Popen(['brew', 'list', '--formulae', '--versions'], stdout=subprocess.PIPE, bufsize=1024) \
                             .stdout.readlines():
-            self.allPackages.append(l.decode('utf-8').strip())
+            tokens = l.decode('utf-8').strip().split(' ', 2)
+            self.allPackages[tokens[0]] = tokens[1]
 
         logging.debug(f" * Brew package manager, got {len(self.allPackages)} installed packages")
 
 
-    def installPackages(self, packages) -> bool:
+    def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * installing missing packages: {' '.join(packages)}")
 
-        logging.error("not implemented")
+        cmd = f"brew install {' '.join(packages)}"
+        return os.system(cmd) == 0
+
+
+def findInPATH(name: str) -> str:
+    for p in os.environ.get('PATH', '').split(os.pathsep):
+        fpath = os.path.join(p, name)
+        if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
+            return fpath
+    return None
+
+class InPathSubManager(PackageManager):
+    ''' package manager that checks for programs in PATH '''
+
+    def __init__(self) -> None:
+        PackageManager.__init__(self)
+
+    def check(self, packages: T.List[str]) -> T.List[str]:
+        ret = []
+        for p in packages:
+            if not findInPATH(p):
+                ret.append(p)
+
+        return ret
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.error(f'InPathSubManager can\'t install {" ".join(packages)}')
         return False
+
+class ChocoSubManager(PackageManager):
+    ''' Chocolatey based package manager '''
+
+    def __init__(self, chocoPath: str) -> None:
+        PackageManager.__init__(self)
+        self.chocoPath = chocoPath
+        firstLine = True
+        for l in subprocess.Popen([chocoPath, 'list', '--no-color'], stdout=subprocess.PIPE, bufsize=1024) \
+                            .stdout.readlines():
+            l = l.decode('utf-8').strip()
+            if firstLine:
+                # first line
+                firstLine = False
+                continue
+            if l.endswith('packages installed.'):
+                # last line
+                continue
+
+            tokens = l.split(' ', 2)
+            self.allPackages[tokens[0]] = tokens[1]
+
+        logging.debug(f" * choco package manager, got {len(self.allPackages)} installed packages")
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.debug(f" * installing missing packages: {' '.join(packages)}")
+
+        cmd = f"{self.chocoPath} install {' '.join(packages)}"
+        return os.system(cmd) == 0
+
+
+class WindowsManager(PackageManager):
+    ''' windows based package manager '''
+
+    def __init__(self) -> None:
+        PackageManager.__init__(self)
+
+        self.choco = None
+        chocoPath = findInPATH("choco.exe")
+        if chocoPath:
+            self.choco = ChocoSubManager(chocoPath)
+
+        self.inPath = InPathSubManager()
+
+    def check(self, packages: T.List[str]) -> T.List[str]:
+        chocoPkgs = []
+        inPathPkgs = []
+
+        ret = []
+        for p in packages:
+            alternatives = p.split('|')
+
+            if len(alternatives) > 1:
+                #
+                # handle syntax with "choco/nasm|nuget/nasm2|path/nasm.exe" that would check for
+                #  nasm with choco, then nasm2 with nuget and finally nasm.exe in the path
+                #
+                found = False
+                cand = None
+
+                for alter in alternatives:
+                    (manager, package) = alter.strip().split('/', 2)
+
+                    if manager == 'choco':
+                        if self.choco:
+                            if self.choco.check([package]):
+                                found = True
+                                break
+                            if not cand:
+                                cand = alter
+                    elif manager == 'path':
+                        fpath = package
+                        if not fpath.endswith('.exe'):
+                            fpath += '.exe'
+
+                        if findInPATH(fpath):
+                            found = True
+                            break
+                    else:
+                        logging.error(f'unknown sub package manager "{manager}"')
+
+                if not found:
+                    if cand:
+                        logging.debug(f'evaluating {p} not found, pushing {cand} for installation')
+                        ret.push(cand)
+                    else:
+                        logging.error(f'can\'t find any alternative in {p}')
+                        return None
+
+            else:
+                (manager, package) = p.split('/', 2)
+                if manager == 'choco':
+                    chocoPkgs.append(package)
+                elif manager == 'path':
+                    inPathPkgs.append(package)
+                else:
+                    logging.error(f'unknown sub package manager "{manager}"')
+                    return None
+
+        if chocoPkgs:
+            if not self.choco:
+                logging.error("some choco packages where requested but Chocolatey is not installed")
+                return None
+
+            for p in self.choco.check(chocoPkgs):
+                ret.append(f'choco/{p}')
+
+        if inPathPkgs:
+            for p in inPathPkgs:
+                if not p.endswith('.exe'):
+                    p += '.exe'
+
+                if not findInPATH(p):
+                    logging.error(f'{p} not found in PATH')
+                    return None
+
+        return ret
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.debug(f" * installing missing packages: {' '.join(packages)}")
+
+        chocoPkgs = []
+
+        for p in packages:
+            if p.startswith('choco/'):
+                chocoPkgs.append(p[6:])
+
+        if chocoPkgs:
+            if not self.choco:
+                logging.error("some choco packages where requested but Chocolatey is not installed")
+                return None
+
+            if not self.choco.installPackages(chocoPkgs):
+                return False
+        return False
+
+class PacmanManager(PackageManager):
+    ''' Pacman based package manager for Arch '''
+
+    def __init__(self) -> None:
+        PackageManager.__init__(self)
+        for l in subprocess.Popen(['pacman', '-Q'], stdout=subprocess.PIPE, bufsize=1024) \
+                    .stdout.readlines():
+            tokens = l.decode('utf-8').strip().split(' ', 2)
+            self.allPackages[tokens[0]] = tokens[1]
+
+        logging.debug(f" * pacman package manager, got {len(self.allPackages)} installed packages")
+
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.debug(f" * installing missing packages: {' '.join(packages)}")
+
+        cmd = f"pacman -S {' '.join(packages)}"
+        if os.getuid() != 0:
+            cmd = "sudo " + cmd
+
+        return os.system(cmd) == 0
+
+class PkgManager(PackageManager):
+    ''' pkg based package manager for FreeBSD '''
+
+    def __init__(self) -> None:
+        PackageManager.__init__(self)
+
+        for l in subprocess.Popen(['pkg', 'info'], stdout=subprocess.PIPE, bufsize=1024) \
+                    .stdout.readlines():
+            v = l.decode('utf-8').strip().split(' ', 2)[0]
+            pos = v.rfind('-')
+            name = v[0:pos]
+            version = v[pos+1:]
+            self.allPackages[name] = version
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.debug(f" * installing missing packages: {' '.join(packages)}")
+
+        cmd = f"pkg install -y {' '.join(packages)}"
+        if os.getuid() != 0:
+            cmd = "sudo " + cmd
+
+        return os.system(cmd) == 0

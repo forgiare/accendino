@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building zlib
+#
+
+openh264_pkgDeps = {
+    UBUNTU_LIKE: ['libopenh264-dev'],
+    REDHAT_LIKE: ['openh264-devel'],
+    "Darwin": ['nasm'],
+    "Windows": ['choco/nasm|path/nasm.exe'],
+}
+openh264_fromSources = False
+
+if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+    openh264_fromSources = True
+
+if openh264_fromSources:
+    for dist in ('Ubuntu', 'Debian', 'Fedora', 'Redhat',):
+        for arch in ('x86_64', 'i686'):
+            openh264_pkgDeps[f'{dist}->mingw@{arch}'] = ['nasm']
+
+    ARTIFACTS += [
+        MesonBuildArtifact('openh264', [],
+            GitSource('https://github.com/cisco/openh264.git', 'v2.4.0'),
+            mesonOpts=['-Doptimization=3', '-Db_lto=true', '-Db_pie=true', '-Dpkgconfig.relocatable=true', '-Dtests=disabled'],
+            pkgs = openh264_pkgDeps,
+            provides=['openh264-artifact']
+        ),
+    ]
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('openh264-artifact', [], pkgs=openh264_pkgDeps)
+    ]

@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libcjson
+#
+
+cjson_pkgDeps = {
+    UBUNTU_LIKE: ['libcjson-dev'],
+    REDHAT_LIKE: ['cjson-devel'],
+}
+cjson_fromSources = False
+
+if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+    cjson_fromSources = True
+
+if cjson_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('cjson', [], GitSource('https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
+            ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF'],
+            provides=['cjson-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('cjson-artifact', [], pkgs=cjson_pkgDeps)
+    ]
+

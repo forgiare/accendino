@@ -23,5 +23,3 @@ ARTIFACTS += [
 
 PROJECT='forgiare'
 DEFAULT_TARGETS='forgiare'
-
-logging.debug('some log')
