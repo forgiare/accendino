@@ -30,7 +30,7 @@ To quicky install all the Ogon stack in `/opt/ogon` in release mode:
 # accendino --prefix=/opt/ogon ogon.accendino
 ```
 
-To quicky install only the Ogon RDP server in `/opt/ogon-dev` in debug mode:
+To quickly install only the Ogon RDP server in `/opt/ogon-dev` in debug mode:
 
 ```console
 # accendino --prefix=/opt/ogon-dev --build-type=debug --targets=ogon ogon.accendino
@@ -48,7 +48,7 @@ _Accendino_ is a great tool to build complex projects on multiple platform. In _
 
 * pull your sources from git or from local locations;
 * express dependencies between your build artifacts;
-* list some platform packages that are needed for the build on a given platform. Currently we support `dpkg`, `rpm` and `brew`. And
+* list some platform packages that are needed for the build on a given platform. Currently we support `dpkg`, `rpm`, `pacman`, `pkg`, `chocolatey` and `brew`. And
     of course you can have dynamic lists, because it's very common that on your linux distribution a package has been renamed or
     removed between distro versions;
 * the _Accendino_ source file is interpreted as a python file that means that you can code any kind of
@@ -59,62 +59,64 @@ _Accendino_ is a great tool to build complex projects on multiple platform. In _
 See the [manual](https://github.com/forgiare/accendino/blob/master/MANUAL.md) for the documentation of what's available to your source file.
 
 
-Here's sample pieces of some _Accendino_ files for freerdp. The idea is that on Mac we build some of the
-dependent libraries for FreeRDP:
+Here's some sample pieces of _Accendino_ files for freerdp with the file to build the ffmpeg dependency or
+use system provided packages:
 
-So `freerdp-mac-deps.conf` contain some artifacts definitions:
-``` python
-# freerdp-mac-deps.conf
-...
-ARTIFACTS += [
-    CMakeBuildArtifact('zlib', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1')),
+```python
+# ffmpeg.accendino
+ffmpeg_pkgDeps = {
+    UBUNTU_LIKE: ['libavcodec-dev', 'libavfilter-dev', 'libavformat-dev', 'libavutil-dev', 'libswscale-dev',
+                      'libavdevice-dev', 'libpostproc-dev'],
+    REDHAT_LIKE: ['libavcodec-free-devel', 'libswscale-free-devel'],
+}
+ffmpeg_fromSources = False
 
-    CMakeBuildArtifact('uriparser', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
-        ['-DURIPARSER_BUILD_DOCS=OFF', '-DURIPARSER_BUILD_TESTS=OFF', '-DURIPARSER_BUILD_TOOLS=OFF']
-    ),
+if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+    ffmpeg_fromSources = True
 
-    CMakeBuildArtifact('cJSON', [], GitSource('https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
-        ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF']
-    ),
+if ffmpeg_fromSources:
+    extraArgs = []
+    if crossCompilation:
+        extraArgs.append('--enable-cross-compile')
+        if targetDistribId == 'mingw':
+            flags = {
+                'i686': ['--arch=i686', '--target-os=mingw32', '--cross-prefix=i686-w64-mingw32-'],
+                'x86_64': ['--arch=x86_64', '--target-os=mingw64', '--cross-prefix=x86_64-w64-mingw32-']
+            }
+            extraArgs += flags.get(targetArch, [])
+            extraArgs.append('--disable-mediafoundation')
 
-    CMakeBuildArtifact('opus', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
-        ['-DOPUS_BUILD_SHARED_LIBRARY=ON']
-    ),
+    if targetDistribId == 'Darwin':
+        extraArgs += ['--enable-shared', '--disable-static',
+            '--enable-swscale', '--disable-asm', '--disable-libxcb',
+            '--disable-xlib', '--enable-avcodec',
+        ]
 
-    CMakeBuildArtifact('libusb', [],
-        GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.26', shallow_submodules=True, recurse_submodules=True),
-        ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON']
-    ),
+    nasmForAll = {
+        'Darwin': ['nasm'],
+        'Windows': ['choco/nasm|path/nasm'],
+    }
 
-    CustomCommandBuildArtifact('openssl', ['zlib'],
-        GitSource('https://github.com/openssl/openssl.git', 'openssl-3.2.0'),
-        prepare_cmds=[
-            ['{srcdir}/config', '--prefix={prefix}', '--libdir={libdir}', 'no-asm', 'no-tests', 'no-docs', 'no-apps', 'zlib']
-        ],
-        build_target='build_sw', install_target='install_sw'
-    ),
-    ...
-]
+    for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
+        nasmForAll[f'{distrib}'] = ['nasm']
+        nasmForAll[f'{distrib}->mingw@x86_64'] = ['nasm']
+
+    ARTIFACTS += [
+        CustomCommandBuildArtifact('ffmpeg', [],
+            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1'),
+            prepare_cmds=[
+                [NativePath('{srcdir}', 'configure'), '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs
+            ],
+            pkgs=nasmForAll,
+            provides=['ffmpeg-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('ffmpeg-artifact', [], pkgs=ffmpeg_pkgDeps)
+    ]
 ```
 
-And in `freerdp.conf` if we're on MacOsX we add these dependencies:
-``` python
-# freerdp.conf
-...
-freerdp_deps = []
-if checkDistrib('= Darwin'):
-    include("freerdp-mac-deps.accendino")
-    freerdp_deps += ['zlib', 'openssl', 'libusb']
-...
 
-ARTIFACTS += [
-    CMakeBuildArtifact(f'freerdp2', freerdp_deps,
-        GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
-        options, provides=provides,
-        pkgs = {
-            REDHAT_LIKE: freerdp_fedora_redhat_base,
-            UBUNTU_LIKE: freerdp_ubuntu_debian_base + freerdp_ubuntu_debian_common
-        }
-    ),
-]
-```
+

@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building faad2
+#
+
+faad2_pkgDeps = {
+    UBUNTU_LIKE: ['libfaad-dev'],
+}
+
+faad2_fromSources = targetDistribId not in ('Ubuntu', 'Debian',)
+
+if faad2_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('faad2', [],
+            GitSource('https://github.com/knik0/faad2.git', '2.11.1'),
+            provides=['faad2-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('faad2-artifact', [], pkgs=faad2_pkgDeps)
+    ]

@@ -1,0 +1,42 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building uriparser
+#
+
+uriparser_fromSources = False
+uriparser_pkgDeps = {
+    UBUNTU_LIKE: ['liburiparser-dev'],
+    REDHAT_LIKE: ['uriparser-devel'],
+}
+
+if targetDistribId == 'mingw':
+    if checkDistrib('>= Fedora 40'):
+        uriparser_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-uriparser'],
+            'Fedora->mingw@x86_64': ['mingw64-uriparser'],
+        })
+    else:
+        uriparser_fromSources = True
+
+if targetDistribId == 'Windows':
+    uriparser_fromSources = True
+
+if uriparser_fromSources:
+    opts = ['-DURIPARSER_BUILD_DOCS=OFF', '-DURIPARSER_BUILD_TESTS=OFF', '-DURIPARSER_BUILD_TOOLS=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('uriparser', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
+            cmakeOpts=opts, provides='uriparser-artifact'
+        ),
+
+        CMakeBuildArtifact('uriparser-static', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
+            cmakeOpts=opts + ['-DBUILD_SHARED_LIBS=OFF']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('uriparser-artifact', [], pkgs=uriparser_pkgDeps)
+    ]

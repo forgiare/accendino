@@ -1,5 +1,6 @@
-from packaging.version import Version
+import pathlib
 import typing as T
+from packaging.version import Version
 
 from zenlog import log as logging
 
@@ -120,3 +121,53 @@ class DepsAdjuster(ConditionalDep):
         for i in self.dropItems:
             ret.remove(i)
         return ret
+
+
+def treatPackageDeps(pkgs: T.Dict[str, T.Any]) -> T.Dict[str, T.Any]:
+    ''' expands a package deps map, it treats keys that have the form
+        `'k1|k2|k3': V` by splitting and setting V for the k1, k2, k3 keys
+        Note that we expect V to be a list and so you can have concatenation by
+        doing:
+            'k1|k2': V1
+            'k1': V2
+
+        You will end up with
+            'k1': V1 + V2,
+            'k2': V1
+    '''
+    ret = {}
+
+    for k, v in pkgs.items():
+        keys = k.split('|')
+        for key in keys:
+            baseV = ret.get(key, [])
+            ret[key] = baseV + v[:]
+
+    return ret
+
+def mergePkgDeps(d1: T.Dict[str, T.Any], d2: T.Dict[str, T.Any]) -> T.Dict[str, T.Any]:
+    ret = d1.copy()
+    for k, v in d2.items():
+        d1_value = ret.get(k, [])
+        ret[k] = d1_value + v
+
+    return ret
+
+
+def doMingwCrossDeps(distribs: T.List[str], deps: T.List[T.Any], target: T.Dict[str, T.Any]):
+    for d in distribs:
+        for arch in ('x86_64', 'i686',):
+            key = f'{d}->mingw@{arch}'
+            baseV = target.get(key, [])
+            target[key] = baseV + deps[:]
+
+
+class NativePath:
+    ''' class that represents a native path '''
+    def __init__(self, *args, **kwargs):
+        self.prefix = kwargs.get('prefix', '')
+        self.suffix = kwargs.get('suffix', '')
+        self.items = args[:]
+
+    def __str__(self) -> str:
+        return self.prefix + str(pathlib.PurePath(*self.items)) + self.suffix
