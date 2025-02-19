@@ -8,21 +8,24 @@
 sdl2_pkgDeps = {
     UBUNTU_LIKE: ['libsdl2-dev'],
     REDHAT_LIKE: ['SDL2-devel'],
+    'FreeBSD': ['sdl2'],
 }
 
 sdl2_image_pkgDeps = {
     UBUNTU_LIKE: ['libsdl2-image-dev'],
     REDHAT_LIKE: ['SDL2_image-devel'],
+    'FreeBSD': ['sdl2_image'],
 }
 
 sdl2_ttf_pkgDeps = {
     UBUNTU_LIKE: ['libsdl2-ttf-dev'],
     REDHAT_LIKE: ['SDL2_ttf-devel'],
+    'FreeBSD': ['sdl2_ttf'],
 }
 
 sdl2_fromSource = True
 
-if targetDistribId in ('Ubuntu', 'Debian', 'Redhat', 'Fedora'):
+if targetDistribId in ('Ubuntu', 'Debian', 'Redhat', 'Fedora', 'FreeBSD',):
     sdl2_fromSource = False
 
 elif targetDistribId == 'mingw':

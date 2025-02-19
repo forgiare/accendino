@@ -9,8 +9,10 @@
 openh264_pkgDeps = {
     UBUNTU_LIKE: ['libopenh264-dev'],
     REDHAT_LIKE: ['openh264-devel'],
-    "Darwin": ['nasm'],
-    "Windows": ['choco/nasm|path/nasm.exe'],
+    'Darwin': ['nasm'],
+    'Windows': ['choco/nasm|path/nasm.exe'],
+    'FreeBSD': ['openh264'],
+
 }
 openh264_fromSources = False
 

@@ -11,6 +11,7 @@ openssl_pkgDeps={
     UBUNTU_LIKE: ['libssl-dev'],
     REDHAT_LIKE: ['openssl-devel'],
     'Windows': ['path/perl'],
+    'FreeBSD': ['openssl34'],
 }
 
 

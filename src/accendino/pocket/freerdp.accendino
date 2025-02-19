@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building FreeRDP
+#
+
 freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
               'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
               'libxml2-dev', 'libxrandr-dev', 'libxi-dev']

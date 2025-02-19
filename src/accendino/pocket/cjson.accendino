@@ -9,6 +9,7 @@
 cjson_pkgDeps = {
     UBUNTU_LIKE: ['libcjson-dev'],
     REDHAT_LIKE: ['cjson-devel'],
+    'FreeBSD': ['libcjson'],
 }
 cjson_fromSources = False
 

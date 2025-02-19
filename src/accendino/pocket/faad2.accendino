@@ -8,9 +8,10 @@
 
 faad2_pkgDeps = {
     UBUNTU_LIKE: ['libfaad-dev'],
+    'FreeBSD': ['faad2'],
 }
 
-faad2_fromSources = targetDistribId not in ('Ubuntu', 'Debian',)
+faad2_fromSources = targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',)
 
 if faad2_fromSources:
     ARTIFACTS += [

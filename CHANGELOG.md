@@ -1,5 +1,10 @@
 # _Accendino_ changelog
 
+## 0.5.10
+
+* updated accendino files for FreeBSD packages
+
+
 ## 0.5.9
 
 * added support for cross compilation

@@ -10,6 +10,7 @@ uriparser_fromSources = False
 uriparser_pkgDeps = {
     UBUNTU_LIKE: ['liburiparser-dev'],
     REDHAT_LIKE: ['uriparser-devel'],
+    'FreeBSD': ['uriparser'],
 }
 
 if targetDistribId == 'mingw':
@@ -21,7 +22,7 @@ if targetDistribId == 'mingw':
     else:
         uriparser_fromSources = True
 
-if targetDistribId == 'Windows':
+if targetDistribId in ('Windows', 'Darwin',):
     uriparser_fromSources = True
 
 if uriparser_fromSources:

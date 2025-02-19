@@ -10,6 +10,7 @@ ffmpeg_pkgDeps = {
     UBUNTU_LIKE: ['libavcodec-dev', 'libavfilter-dev', 'libavformat-dev', 'libavutil-dev', 'libswscale-dev',
                       'libavdevice-dev', 'libpostproc-dev'],
     REDHAT_LIKE: ['libavcodec-free-devel', 'libswscale-free-devel'],
+    'FreeBSD': ['ffmpeg'],
 }
 ffmpeg_fromSources = False
 
