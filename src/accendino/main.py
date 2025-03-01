@@ -565,12 +565,6 @@ def run(args: T.List[str]) -> int:
 
     def buildModule(buildItem) -> bool:
         ''' '''
-        logging.info(f' * module {buildItem.name}')
-        logging.debug('   ==> checking out')
-        if not buildItem.checkout(config):
-            logging.error(f"checkout error for {buildItem.name}")
-            return False
-
         logging.debug('   ==> preparing')
         if not buildItem.prepare(config):
             logging.error(f"prepare error for {buildItem.name}")
@@ -585,6 +579,12 @@ def run(args: T.List[str]) -> int:
     exitCode = 0
     if config.doBuild:
         for item in buildPlan:
+            logging.info(f' * module {item.name}')
+            logging.debug('   ==> checking out')
+            if not item.checkout(config):
+                logging.error(f"checkout error for {item.name}")
+                return 1
+
             if config.resumeFrom:
                 if item.name != config.resumeFrom:
                     continue

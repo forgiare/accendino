@@ -76,6 +76,8 @@ class DepsBuildArtifact:
         self.deps = deps
         self.provides = provides
         self.pkgs = treatPackageDeps(pkgs)
+        self.prepareStateFile = None
+        self.builtFile = None
 
     def checkout(self, _config) -> bool:
         return True
@@ -123,8 +125,6 @@ class BuildArtifact(DepsBuildArtifact):
         self.prepare_cmds = prepare_cmds[:]
         self.build_cmds = build_cmds[:]
         self.parallelJobs = True
-        self.prepareStateFile = None
-        self.builtFile = None
 
     def _updatePATHlike(self, config, env: T.Dict[str, str], key: str, preExtra: T.List[str] = [],
                         postExtra: T.List[str] = [], sep: str = ':') -> None:
@@ -276,8 +276,32 @@ class BuildArtifact(DepsBuildArtifact):
 
                 lastDir = path
 
+    def needsRebuildFromDepsUpdates(self, config):
+        if not self.builtFile or not os.path.exists(self.builtFile):
+            return False
+
+        self_mtime = os.stat(self.builtFile).st_mtime
+
+        for dep in self.deps:
+            artifact = config.getBuildItem(dep)
+            if artifact and artifact.builtFile and os.path.exists(artifact.builtFile):
+                mtime = os.stat(artifact.builtFile).st_mtime
+                if self_mtime < mtime:
+                    logging.debug(f'rebuilding {self.name} because of {artifact.name} has a more recent build')
+                    return True
+        return False
+
+
     def prepare(self, config) -> bool:
         os.makedirs(self.buildDir, exist_ok=True)
+
+        if self.needsRebuildFromDepsUpdates(config):
+            # some of our deps have been updated, let's rebuild
+            if os.path.exists(self.prepareStateFile):
+                os.remove(self.prepareStateFile)
+
+            if os.path.exists(self.builtFile):
+                os.remove(self.builtFile)
 
         env = self._computeEnv(config, self.extraEnv, config.debug)
 

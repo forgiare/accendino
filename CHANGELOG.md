@@ -3,6 +3,7 @@
 ## 0.5.10
 
 * updated accendino files for FreeBSD packages
+* rebuild an artifact when one of its dependency has been rebuilt more recently
 
 
 ## 0.5.9
