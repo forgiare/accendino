@@ -20,7 +20,7 @@ if faac_fromSources:
         #     CFLAGS="$OSSL_FLAGS -U__SSE2__" LDFLAGS=$OSSL_FLAGS
         #
         CustomCommandBuildArtifact('faac', [],
-            GitSource('https://github.com/knik0/faac.git', '1_30'),
+            GitSource('https://github.com/knik0/faac.git', 'faac-1.31.1'),
             prepare_src_cmds=[
                 [NativePath('{srcdir}', 'bootstrap')]
             ],

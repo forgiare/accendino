@@ -16,7 +16,7 @@ faad2_fromSources = targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',)
 if faad2_fromSources:
     ARTIFACTS += [
         CMakeBuildArtifact('faad2', [],
-            GitSource('https://github.com/knik0/faad2.git', '2.11.1'),
+            GitSource('https://github.com/knik0/faad2.git', '2.11.2'),
             provides=['faad2-artifact']
         ),
     ]

@@ -46,7 +46,7 @@ if ffmpeg_fromSources:
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', [],
-            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1'),
+            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
             prepare_cmds=[
                 [NativePath('{srcdir}', 'configure'), '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs
             ],

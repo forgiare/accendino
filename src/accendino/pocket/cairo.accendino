@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building cairo
+#
+include('zlib')
+cairo_pkgDeps = {
+    UBUNTU_LIKE: ['libcairo2-dev'],
+    REDHAT_LIKE: ['cairo-devel'],
+}
+
+cairo_fromSources = False
+
+if targetDistribId == 'mingw':
+    if checkDistrib('>= Fedora 40'):
+        cairo_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-cairo'],
+            'Fedora->mingw@x86_64': ['mingw64-cairo'],
+        })
+    else:
+        cairo_fromSources = True
+
+if targetDistribId == 'Windows':
+    cairo_fromSources = True
+
+if cairo_fromSources:
+    ARTIFACTS += [
+        MesonBuildArtifact('cairo', ['zlib-artifact'],
+            GitSource('https://gitlab.freedesktop.org/cairo/cairo.git', '1.18.4'),
+            mesonOpts=[],
+            provides=['cairo-artifact']
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('cairo-artifact', [], pkgs=cairo_pkgDeps)
+    ]

@@ -3,7 +3,7 @@
 #
 #  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
 #
-#    Detecting or building zlib
+#    Detecting or building openh264
 #
 
 openh264_pkgDeps = {

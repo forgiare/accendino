@@ -30,10 +30,11 @@ include('opus')
 include('faac')
 include('faad2')
 include('openh264')
+include('cairo')
 include('sdl2')
 
 freerdp_deps = ['zlib-artifact', 'uriparser-artifact', 'openssl-artifact', 'cjson-artifact', 'libusb-artifact',
-                'opus-artifact',  'faad2-artifact']
+                'opus-artifact',  'faad2-artifact', 'cairo-artifact']
 
 if targetDistribId in ('Windows',):
     # dropping faac for now, as it needs msys to generate the build files

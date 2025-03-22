@@ -49,6 +49,8 @@ elif targetDistribId == 'mingw':
 
 
 if sdl2_fromSource:
+    include('zlib')
+
     ARTIFACTS += [
         CMakeBuildArtifact('SDL2', [], GitSource('https://github.com/libsdl-org/SDL.git', 'release-2.30.4'),
             ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],

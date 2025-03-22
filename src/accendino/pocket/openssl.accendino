@@ -58,9 +58,11 @@ if openssl_fromSources:
 
     prepareCmd += ['--prefix={prefix}', '--libdir={libdir}', 'no-asm', 'no-tests', 'no-docs', 'no-apps']
 
+    include('zlib')
+
     ARTIFACTS += [
         CustomCommandBuildArtifact('openssl', ['zlib-artifact'],
-            GitSource('https://github.com/openssl/openssl.git', 'openssl-3.2.0'),
+            GitSource('https://github.com/openssl/openssl.git', 'openssl-3.4.1'),
             prepare_cmds=[
                 prepareCmd
             ],
