@@ -90,8 +90,9 @@ Some examples:
     than can be `=`, `==`, `!`, `!=`, `<`, `<=`, `>` or `>=`. And `version` is the version string with 3 digits. For example: `cond='>= 0.5.1'`
 * `checkDistrib(cond : str) -> bool`: checks if the current distribution matches the [platform version condition](#platform-version-condition)
     given in `cond`
-* `include(name : str) -> bool`: allows to include another _Accendino_ source file. _Accendino_ will search for this file in the following
-    locations: `.`, `pocket`, paths given in the `ACCENDINO_PATH` env variable, and finally in the pockets directory of _Accendino_
+* `include(name : str, include_once: bool = True) -> bool`: allows to include another _Accendino_ source file. _Accendino_ will search for this file in the following
+    locations: `.`, `pocket`, paths given in the `ACCENDINO_PATH` env variable, and finally in the pockets directory of _Accendino_. If `include_once` is set to `True`
+    the file is just included once
 * `pickDeps(name : str) -> List[str]`: returns a copy of the artifact dependencies of the build artifact named `name`.
     This is useful if you define a build artifact that is just the variant of another one
 * `pickPkgDeps(name : str, extra = None, override : bool = False) -> Dict[str, List[str]]`: returns a copy

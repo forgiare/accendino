@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building FreeRDP
+#
+
 freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
               'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
               'libxml2-dev', 'libxrandr-dev', 'libxi-dev']
@@ -22,10 +30,11 @@ include('opus')
 include('faac')
 include('faad2')
 include('openh264')
+include('cairo')
 include('sdl2')
 
 freerdp_deps = ['zlib-artifact', 'uriparser-artifact', 'openssl-artifact', 'cjson-artifact', 'libusb-artifact',
-                'opus-artifact',  'faad2-artifact']
+                'opus-artifact',  'faad2-artifact', 'cairo-artifact']
 
 if targetDistribId in ('Windows',):
     # dropping faac for now, as it needs msys to generate the build files

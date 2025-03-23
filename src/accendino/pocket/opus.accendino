@@ -9,6 +9,7 @@
 opus_pkgDeps = {
     UBUNTU_LIKE: ['libopus-dev'],
     REDHAT_LIKE: ['opus-devel'],
+    'FreeBSD': ['opus-tools'],
 }
 
 opus_fromSources = False
@@ -23,7 +24,7 @@ if targetDistribId == 'mingw':
     else:
         opus_fromSources = True
 
-if targetDistribId in ('Darwin', 'Windows', ):
+elif targetDistribId in ('Darwin', 'Windows', ):
     opus_fromSources = True
 
 if opus_fromSources:

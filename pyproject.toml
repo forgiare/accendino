@@ -48,7 +48,7 @@ version = {attr = "accendino.__version__"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-accendino = ["pocket/*.accendino", "cross/*.conf", "cross/*.cmake"]
+accendino = ["pocket/*.accendino", "cross/*.meson", "cross/*.cmake"]
 
 [project.scripts]
 accendino = "accendino.main:main"

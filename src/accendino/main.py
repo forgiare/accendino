@@ -149,8 +149,9 @@ class AccendinoConfig:
         #   * first paths provided in ACCENDINO_PATH,
         #   * then in the accendino pocket
         self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + [ self.pocketDir ]
+        self.includedFiles = []
 
-        def includeFn(fname) -> bool:
+        def includeFn(fname: str, include_once: bool = True) -> bool:
             ''' '''
             searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
             if fname.startswith('.'):
@@ -162,8 +163,15 @@ class AccendinoConfig:
             for p in searchPaths:
                 fpath = os.path.join(p, fname)
                 if os.path.exists(fpath) and os.path.isfile(fpath):
+                    if include_once and fpath in self.includedFiles:
+                        logging.debug(f"file '{fpath}' already included")
+                        return True
+
                     logging.debug(f"including file '{fpath}'")
-                    return self.readSources([fpath])
+                    ret = self.readSources([fpath])
+                    if ret:
+                        self.includedFiles.append(fpath)
+                    return ret
 
             logging.error(f'unable to find {fname} in pockets')
             return False
@@ -557,7 +565,7 @@ def run(args: T.List[str]) -> int:
         for i in buildPlan:
             items.append(i.name)
 
-        logging.debug(f" * build plan: {' '.join(items)}")
+        logging.debug(f" * build plan: [{', '.join(items)}]")
 
     if config.checkPackages:
         config.treatPlatformPackages(buildPlan)
@@ -565,12 +573,6 @@ def run(args: T.List[str]) -> int:
 
     def buildModule(buildItem) -> bool:
         ''' '''
-        logging.info(f' * module {buildItem.name}')
-        logging.debug('   ==> checking out')
-        if not buildItem.checkout(config):
-            logging.error(f"checkout error for {buildItem.name}")
-            return False
-
         logging.debug('   ==> preparing')
         if not buildItem.prepare(config):
             logging.error(f"prepare error for {buildItem.name}")
@@ -585,6 +587,12 @@ def run(args: T.List[str]) -> int:
     exitCode = 0
     if config.doBuild:
         for item in buildPlan:
+            logging.info(f' * module {item.name}')
+            logging.debug('   ==> checking out')
+            if not item.checkout(config):
+                logging.error(f"checkout error for {item.name}")
+                return 1
+
             if config.resumeFrom:
                 if item.name != config.resumeFrom:
                     continue

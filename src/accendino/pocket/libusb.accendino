@@ -28,7 +28,7 @@ if targetDistribId == 'Windows':
 if libusb_fromSources:
     ARTIFACTS += [
         CMakeBuildArtifact('libusb', [],
-            GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.27', shallow_submodules=True, recurse_submodules=True),
+            GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.28-0', shallow_submodules=True, recurse_submodules=True),
             ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON'],
             provides=['libusb-artifact']
         ),

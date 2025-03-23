@@ -10,6 +10,7 @@ ffmpeg_pkgDeps = {
     UBUNTU_LIKE: ['libavcodec-dev', 'libavfilter-dev', 'libavformat-dev', 'libavutil-dev', 'libswscale-dev',
                       'libavdevice-dev', 'libpostproc-dev'],
     REDHAT_LIKE: ['libavcodec-free-devel', 'libswscale-free-devel'],
+    'FreeBSD': ['ffmpeg'],
 }
 ffmpeg_fromSources = False
 
@@ -45,7 +46,7 @@ if ffmpeg_fromSources:
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', [],
-            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1'),
+            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
             prepare_cmds=[
                 [NativePath('{srcdir}', 'configure'), '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs
             ],
