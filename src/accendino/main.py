@@ -153,28 +153,15 @@ class AccendinoConfig:
 
         def includeFn(fname: str, include_once: bool = True) -> bool:
             ''' '''
-            searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
-            if fname.startswith('.'):
-                searchPaths = []
-
             if not fname.endswith('.accendino'):
                 fname = fname + '.accendino'
 
-            for p in searchPaths:
-                fpath = os.path.join(p, fname)
-                if os.path.exists(fpath) and os.path.isfile(fpath):
-                    if include_once and fpath in self.includedFiles:
-                        logging.debug(f"file '{fpath}' already included")
-                        return True
+            logging.debug(f"including file '{fname}'")
+            ret = self.readSource(fname, include_once)
+            if ret:
+                self.includedFiles.append(fname)
+            return ret
 
-                    logging.debug(f"including file '{fpath}'")
-                    ret = self.readSources([fpath])
-                    if ret:
-                        self.includedFiles.append(fpath)
-                    return ret
-
-            logging.error(f'unable to find {fname} in pockets')
-            return False
 
         def pickDeps(name: str) -> T.List[T.Any]:
             ''' '''
@@ -238,6 +225,21 @@ class AccendinoConfig:
             'REDHAT_LIKE': 'Fedora|Redhat',
             'checkAccendinoVersion': checkAccendinoVersionFn,
         }
+
+    def findSourceFile(self, fname: str, include_once: bool = True) -> str:
+        searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
+        if fname.startswith('.'):
+            searchPaths = []
+
+        for p in searchPaths:
+            fpath = os.path.join(p, fname)
+            if os.path.exists(fpath) and os.path.isfile(fpath):
+                if include_once and fpath in self.includedFiles:
+                    logging.debug(f"file '{fpath}' already included")
+                    return True
+                return fpath
+
+        return None
 
     def cmakeBuildType(self) -> str:
         ''' '''
@@ -396,12 +398,16 @@ class AccendinoConfig:
                 buildPlan.append(itemStr)
 
 
-    def readSources(self, fnames: T.List[str]) -> bool:
+    def readSource(self, fname: str, include_once: bool) -> bool:
         ''' '''
-        for fname in fnames:
-            with open(fname, "rt", encoding="utf8") as f:
-                code = compile(f.read(), os.path.basename(fname), "exec")
-                exec(code, {}, self.context)
+        fpath = self.findSourceFile(fname, include_once)
+        if isinstance(fpath, bool):
+            # already included
+            return True
+
+        with open(fpath, "rt", encoding="utf8") as f:
+            code = compile(f.read(), os.path.basename(fpath), "exec")
+            exec(code, {}, self.context)
 
         return True
 
@@ -537,7 +543,7 @@ def run(args: T.List[str]) -> int:
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
         logging.info(' * no source file provided using default ogon.conf')
-        config.sources += ['ogon.conf']
+        config.sources += ['ogon.accendino']
 
     (distribId, distribVersion) = detectPlatform()
 
@@ -545,7 +551,10 @@ def run(args: T.List[str]) -> int:
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
 
-    config.readSources(config.sources)
+    for f in config.sources:
+        if not config.readSource(f, True):
+            logging.error(f"error interpreting {f}")
+            return 2
     config.finalizeConfig()
 
     retCode = createWorkTree(config)
