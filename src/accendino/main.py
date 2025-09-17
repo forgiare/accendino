@@ -351,7 +351,7 @@ class AccendinoConfig:
             pkgManager = PacmanManager()
 
         if pkgManager:
-            toInstall = pkgManager.check(packagesToCheck)
+            toInstall = pkgManager.checkMissing(packagesToCheck)
             if toInstall is None:
                 logging.error(" * package requirements not met")
                 sys.exit(5)

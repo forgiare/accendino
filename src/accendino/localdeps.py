@@ -13,10 +13,10 @@ class PackageManager:
         self.allPackages = {}
         self.debug = True
 
-    def check(self, packages: T.List[str]) -> T.List[str]:
+    def checkMissing(self, packages: T.List[str]) -> T.List[str]:
         ret = []
 
-        logging.debug(f" * checking required {len(packages)} packages on system:")
+        logging.debug(f" * checking required {len(packages)} package(s) on system:")
 
         for p in packages:
             if p not in self.allPackages:
@@ -118,7 +118,7 @@ class InPathSubManager(PackageManager):
     def __init__(self) -> None:
         PackageManager.__init__(self)
 
-    def check(self, packages: T.List[str]) -> T.List[str]:
+    def checkMissing(self, packages: T.List[str]) -> T.List[str]:
         ret = []
         for p in packages:
             if not findInPATH(p):
@@ -173,7 +173,7 @@ class WindowsManager(PackageManager):
 
         self.inPath = InPathSubManager()
 
-    def check(self, packages: T.List[str]) -> T.List[str]:
+    def checkMissing(self, packages: T.List[str]) -> T.List[str]:
         chocoPkgs = []
         inPathPkgs = []
 
@@ -194,7 +194,7 @@ class WindowsManager(PackageManager):
 
                     if manager == 'choco':
                         if self.choco:
-                            if self.choco.check([package]):
+                            if not self.choco.checkMissing([package]):
                                 found = True
                                 break
                             if not cand:
@@ -213,7 +213,7 @@ class WindowsManager(PackageManager):
                 if not found:
                     if cand:
                         logging.debug(f'evaluating {p} not found, pushing {cand} for installation')
-                        ret.push(cand)
+                        ret.append(cand)
                     else:
                         logging.error(f'can\'t find any alternative in {p}')
                         return None
@@ -233,7 +233,7 @@ class WindowsManager(PackageManager):
                 logging.error("some choco packages where requested but Chocolatey is not installed")
                 return None
 
-            for p in self.choco.check(chocoPkgs):
+            for p in self.choco.checkMissing(chocoPkgs):
                 ret.append(f'choco/{p}')
 
         if inPathPkgs:
