@@ -1,0 +1,46 @@
+name: CI
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  push:
+    branches: [ next ]
+  pull_request:
+    branches: [ master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  #workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: Windows
+
+    strategy:
+        matrix:
+            cfg:
+              - descr: Build of FreeRDP win64
+                file: freerdp.accendino
+                targets: freerdp3
+            
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - uses: actions/checkout@v4
+      #- uses: actions/setup-python@v5
+      #  with:
+      #    python-version: '3.x'
+
+      - name: venv
+        run: |
+            python -m venv _venv
+            _venv\Scripts\Activate.ps1
+            pip install setuptools
+
+      - name: Install ${{ matrix.cfg.descr }}
+        run: python -m pip install .
+
+      - name: Test ${{ matrix.cfg.descr }}
+        run: accendino --prefix=/tmp/ogon --targets=${{ matrix.cfg.targets }} ${{ matrix.cfg.extraArgs }} --debug ${{ matrix.cfg.file }}
+

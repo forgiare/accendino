@@ -136,19 +136,18 @@ class ChocoSubManager(PackageManager):
     def __init__(self, chocoPath: str) -> None:
         PackageManager.__init__(self)
         self.chocoPath = chocoPath
-        firstLine = True
-        for l in subprocess.Popen([chocoPath, 'list', '--no-color'], stdout=subprocess.PIPE, bufsize=1024) \
+
+        for l in subprocess.Popen([chocoPath, 'list', '--no-color', '-r'], stdout=subprocess.PIPE, bufsize=1024) \
                             .stdout.readlines():
             l = l.decode('utf-8').strip()
-            if firstLine:
-                # first line
-                firstLine = False
-                continue
-            if l.endswith('packages installed.'):
-                # last line
+
+            # output looks like:
+            #     chocolatey|2.5.1
+            #     nasm|2.16.3
+            if not l:
                 continue
 
-            tokens = l.split(' ', 2)
+            tokens = l.split('|', 2)
             self.allPackages[tokens[0]] = tokens[1]
 
         logging.debug(f" * choco package manager, got {len(self.allPackages)} installed packages")
