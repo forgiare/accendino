@@ -191,6 +191,13 @@ class BuildArtifact(DepsBuildArtifact):
         }
         return item.format(**values)
 
+    def _expandConfigForPath(self, item: str, config):
+        knownPaths = {
+            '{srcdir}': self.sourceDir,
+            '{builddir}': self.buildDir
+        }
+        return knownPaths.get(item, item)
+
     def _expandConfigInlist(self, l: T.List[str], config) -> T.List[str]:
         ret = []
         for item in l:
@@ -233,7 +240,7 @@ class BuildArtifact(DepsBuildArtifact):
             for cmd, path, cmddoc in runItems:
                 cmd = self._expandConfigInlist(cmd, config)
                 logging.debug(f'{cmddoc}: {" ".join(cmd)}')
-                path = self._expandConfigInString(path, config)
+                path = pathlib.Path(self._expandConfigForPath(path, config))
 
                 completedProc = subprocess.run(cmd, env=env, cwd=path, stdout=flog, stderr=flog)
                 if completedProc.returncode != 0:
