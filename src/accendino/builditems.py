@@ -62,15 +62,17 @@ class BuildStepDump:
 PREPARE_DUMP_FILE = 'accendino.prepared'
 BUILT_FILE = 'accentino.built'
 
+
 class DepsBuildArtifact:
     ''' basic build artifact only for dependencies and platform packages '''
 
-    def __init__(self, name, deps=[], provides=[], pkgs={}) -> None:
+    def __init__(self, name, deps=[], provides=[], pkgs={}, toolchainArtifacts='c') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         self.name = name
         self.deps = deps
@@ -78,6 +80,10 @@ class DepsBuildArtifact:
         self.pkgs = treatPackageDeps(pkgs)
         self.prepareStateFile = None
         self.builtFile = None
+        if isinstance(toolchainArtifacts, str):
+            self.toolchainArtifacts = toolchainArtifacts.split(',')
+        else:
+            self.toolchainArtifacts = toolchainArtifacts
 
     def checkout(self, _config) -> bool:
         return True
@@ -91,12 +97,14 @@ class DepsBuildArtifact:
     def __str__(self) -> str:
         return f"<{self.name}>"
 
-
+WIN_PREPARE_SCRIPT = 'prepare.ps1'
+WIN_BUILD_SCRIPT = 'build.ps1'
 
 class BuildArtifact(DepsBuildArtifact):
     ''' general build artifact '''
 
-    def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[]) -> None:
+    def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[],
+                 toolchainArtifacts='c') -> None:
         '''
             'commands list' are list of tuple(command, running_directory, command_description).
                 * command is the list passed to subprocess.execute().
@@ -112,11 +120,12 @@ class BuildArtifact(DepsBuildArtifact):
             @param pkgs: required platform packages
             @param prepare_cmds: a command list of commands to run to prepare the build tree.
             @param build_cmds: a command list of commands to run to do the build and install
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         if srcObj:
             pkgs = mergePkgDeps(pkgs, srcObj.pkgDeps)
 
-        DepsBuildArtifact.__init__(self, name, deps, provides, pkgs)
+        DepsBuildArtifact.__init__(self, name, deps, provides, pkgs, toolchainArtifacts)
         self.srcObj = srcObj
         self.sourceDir = None
         self.buildDir = None
@@ -151,14 +160,19 @@ class BuildArtifact(DepsBuildArtifact):
             for k in keys:
                 f.write(f'export {k}="{env[k]}"\n')
 
+    def _pushPowerShellEnv(self, f, env: T.Dict[str, str], keys: T.List[str]) -> None:
+        f.write(f'# environment variables for artifact {self.name}\n')
+        for k in keys:
+            f.write(f"$env:{k} = '{env[k]}'\n")
+
+        f.write('\n')
+
     def _createEnvFileWin32(self, env: T.Dict[str, str], keys: T.List[str]) -> None:
         with open(self.buildDir / 'setEnv.ps1', 'wt', encoding='utf8') as f:
-            f.write(f'# environment variables for artifact {self.name}\n')
-            for k in keys:
-                f.write(f'$env:{k} = "{env[k]}"\n')
+            self._pushPowerShellEnv(f, env, keys)
 
 
-    def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Dict[str, str]:
+    def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Tuple[T.Dict[str, str], T.List[str]]:
         r = os.environ.copy()
         r.update(extra)
 
@@ -174,7 +188,7 @@ class BuildArtifact(DepsBuildArtifact):
             fileDumper = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
             fileDumper(r, xkeys)
 
-        return r
+        return (r, xkeys)
 
     def _expandConfigInString(self, item: str, config) -> str:
         if not isinstance(item, str):
@@ -191,7 +205,7 @@ class BuildArtifact(DepsBuildArtifact):
         }
         return item.format(**values)
 
-    def _expandConfigForPath(self, item: str, config):
+    def _expandConfigForPath(self, item: str, _config):
         knownPaths = {
             '{srcdir}': self.sourceDir,
             '{builddir}': self.buildDir
@@ -249,7 +263,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         return True
 
-    def _createPrepareFileUnix(self, config) -> None:
+    def _createPrepareFileUnix(self, config, _env, _xkeys) -> None:
         with open(self.buildDir / "prepare.sh", "wt", encoding='utf8') as f:
             f.write(f'# prepare commands for artifact {self.name}\n\n')
             lastDir = None
@@ -267,19 +281,29 @@ class BuildArtifact(DepsBuildArtifact):
 
                 lastDir = path
 
-    def _createPrepareFileWin32(self, config) -> None:
-        with open(self.buildDir / "prepare.bat", "wt", encoding='utf8') as f:
-            f.write(f'rem\nrem prepare commands for artifact {self.name}\nrem\n\n')
+    def _createPrepareFileWin32(self, config, env, xkeys) -> None:
+        with open(self.buildDir / WIN_PREPARE_SCRIPT, "wt", encoding='utf8') as f:
+            f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
+
+            self._pushPowerShellEnv(f, env, xkeys)
+
+            toolchainContent = config.toolchainObj.prepareItems()
+            if toolchainContent:
+                f.write(f'# added by toolchain {config.toolchainObj.description}\n')
+                f.write(toolchainContent)
+                f.write('\n')
+
+            f.write(f'#\n# prepare commands for artifact {self.name}\n#\n\n')
             lastDir = None
             for cmd, path, cmddoc in self.prepare_cmds:
-                f.write(f'rem {cmddoc}\n')
+                f.write(f'# {cmddoc}\n')
 
                 path = self._expandConfigInString(path, config)
                 if lastDir != path:
                     f.write(f'cd "{path}"\n')
 
                 cmd = self._expandConfigInlist(cmd, config)
-                f.write(f'{" ".join(cmd)}\n\n')
+                f.write(f'& {" ".join(cmd)}\n\n')
 
                 lastDir = path
 
@@ -310,7 +334,7 @@ class BuildArtifact(DepsBuildArtifact):
             if os.path.exists(self.builtFile):
                 os.remove(self.builtFile)
 
-        env = self._computeEnv(config, self.extraEnv, config.debug)
+        (env, xkeys) = self._computeEnv(config, self.extraEnv, config.debug)
 
         dump = BuildStepDump()
         dump.env = env.copy()
@@ -331,11 +355,16 @@ class BuildArtifact(DepsBuildArtifact):
         if os.path.exists(self.builtFile):
             os.remove(self.builtFile)
 
-        if config.debug:
-            scriptBuilder = self._createPrepareFileWin32 if config.distribId in ('Windows',) else self._createPrepareFileUnix
-            scriptBuilder(config)
+        scriptBuilder = self._createPrepareFileWin32 if config.distribId in ('Windows',) else self._createPrepareFileUnix
+        scriptBuilder(config, env, xkeys)
 
-        if self.runCommands(self.prepare_cmds, env, config):
+        ret = False
+        if config.distribId in ('Windows', ):
+            ret = self.execute(['powershell', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
+        else:
+            ret = self.runCommands(self.prepare_cmds, env, config)
+
+        if ret:
             try:
                 with open(self.prepareStateFile, 'wb') as f:
                     pickle.dump(dump, f)
@@ -355,12 +384,46 @@ class BuildArtifact(DepsBuildArtifact):
             logging.error(f"unable to create built file {self.builtFile} for artifact {self.name}")
             return False
 
+    def _createWin32BuildScript(self, config, env: T.Dict[str, str], xkeys) -> bool:
+        with open(self.buildDir / WIN_BUILD_SCRIPT, "wt", encoding='utf8') as f:
+            f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
+
+            self._pushPowerShellEnv(f, env, xkeys)
+
+            toolchainItem = config.toolchainObj.prepareItems()
+            if toolchainItem:
+                f.write(f'# toolchain setup for {config.toolchainObj.description}\n{toolchainItem}\n')
+
+            lastPath = None
+            for cmd, path, cmddoc in self.build_cmds:
+                f.write(f'# {cmddoc}\n')
+
+                path = pathlib.Path(self._expandConfigForPath(path, config))
+                if lastPath != path:
+                    f.write(f'cd {path}\n')
+                    lastPath = path
+
+                cmd = self._expandConfigInlist(cmd, config)
+                cmdStr = "' '".join(cmd)
+                f.write(f"& '{cmdStr}'\n\n")
+
+            return True
+
+
     def build(self, config) -> bool:
         if os.path.isfile(self.builtFile):
             logging.debug(f'artifact {self.name} already built')
             return True
 
-        env = self._computeEnv(config, self.extraEnv)
+        (env, xkeys) = self._computeEnv(config, self.extraEnv)
+
+        if config.distribId in ('Windows',):
+            if not self._createWin32BuildScript(config, env, xkeys):
+                return False
+
+            logging.debug(f'running powershell .\\{WIN_BUILD_SCRIPT}')
+            return self.execute(['powershell', f'.\\{WIN_BUILD_SCRIPT}'], env, self.buildDir) and self.createBuiltFile()
+
         return self.runCommands(self.build_cmds, env, config) and self.createBuiltFile()
 
 
@@ -389,10 +452,10 @@ class BuildArtifact(DepsBuildArtifact):
 
 
 class CustomCommandBuildArtifact(BuildArtifact):
-    ''' an artifact that have is configured with a special command '''
+    ''' an artifact that is configured with a special command '''
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides: T.List[str] = [], pkgs={}, prepare_src_cmds=[], prepare_cmds=[],
-                 builder='make', build_target='all', install_target='install') -> None:
+                 builder='make', build_target='all', install_target='install', toolchainArtifacts='c') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -400,8 +463,15 @@ class CustomCommandBuildArtifact(BuildArtifact):
             @param extraEnv: extra environment variable to use when running commands
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
+            @param prepare_src_cmds: the list of commands to prepare the source directory
+            @param prepare_cmds: the list of commands to prepare the build directory
+            @param builder: which builder to use can be ninja, make or nmake
+            @param build_target: target to build
+            @param install_target: install to build
+            @param toolchainArtifacts: artifacts that we need from the toolchain
+
         '''
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv=extraEnv, provides=provides, pkgs=pkgs)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv=extraEnv, provides=provides, pkgs=pkgs, toolchainArtifacts=toolchainArtifacts)
 
         self.builder = builder
         self.build_target = build_target
@@ -423,7 +493,8 @@ class CustomCommandBuildArtifact(BuildArtifact):
 class CMakeBuildArtifact(BuildArtifact):
     ''' cmake based build item '''
 
-    def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={}) -> None:
+    def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={},
+                 toolchainArtifacts='c') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -433,6 +504,7 @@ class CMakeBuildArtifact(BuildArtifact):
             @param pkgs: required platform packages
             @param cmakeOpts:
             @param parallelJobs:
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         extra = {
             'Ubuntu|Debian|Redhat|Fedora|Arch|FreeBSD|Darwin': ['cmake']
@@ -440,7 +512,7 @@ class CMakeBuildArtifact(BuildArtifact):
         doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build'], extra)
         pkgs = mergePkgDeps(pkgs, extra)
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
 
@@ -477,7 +549,7 @@ class CMakeBuildArtifact(BuildArtifact):
 class QMakeBuildArtifact(BuildArtifact):
     ''' qmake + make based build item '''
 
-    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}) -> None:
+    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, toolchainArtifacts='c++') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -485,6 +557,7 @@ class QMakeBuildArtifact(BuildArtifact):
             @param extraEnv: extra environment variable to use when running commands
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         pkgs = mergePkgDeps(pkgs, {
             'Ubuntu|Debian': ['qt5-qmake'],
@@ -492,7 +565,7 @@ class QMakeBuildArtifact(BuildArtifact):
             'FreeBSD': ['qt5-qmake'],
         })
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
 
         # needed to avoid some g++ link errors on Fedora
         self.extraEnv = extraEnv.copy()
@@ -531,7 +604,7 @@ class AutogenBuildArtifact(BuildArtifact):
     ''' autotools/autogen.sh + make based build item '''
 
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, autogenArgs=[], noconfigure=False,
-                 isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}') -> None:
+                 isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}', toolchainArtifacts='c') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -545,6 +618,7 @@ class AutogenBuildArtifact(BuildArtifact):
             @param bootstrapScript:
             @param configureArgs:
             @param runInstallDir:
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         pkgs = mergePkgDeps(pkgs, {
             'Ubuntu|Debian': ['make', 'build-essential', 'automake', 'autoconf', 'libtool'],
@@ -552,7 +626,7 @@ class AutogenBuildArtifact(BuildArtifact):
             'Arch|Darwin|FreeBSD': ['autoconf', 'automake', 'libtool'],
         })
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
 
         self.isAutogen = isAutogen
         self.autogenArgs = autogenArgs
@@ -589,7 +663,8 @@ class AutogenBuildArtifact(BuildArtifact):
 class MesonBuildArtifact(BuildArtifact):
     ''' meson + ninja based build item '''
 
-    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True) -> None:
+    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True,
+                 toolchainArtifacts='c') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -599,6 +674,7 @@ class MesonBuildArtifact(BuildArtifact):
             @param pkgs: required platform packages
             @param mesonOpts:
             @param parallelJobs:
+            @param toolchainArtifacts: artifacts that we need from the toolchain
         '''
         extra = {
             'Ubuntu|Debian|Redhat|Fedora': ['meson', 'ninja-build'],
@@ -607,7 +683,7 @@ class MesonBuildArtifact(BuildArtifact):
         doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['meson', 'ninja-build'], extra)
 
         pkgs = mergePkgDeps(pkgs, extra)
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
         self.mesonOpts = mesonOpts
         self.parallelJobs = parallelJobs
 

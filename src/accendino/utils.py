@@ -1,3 +1,4 @@
+import os
 import pathlib
 import typing as T
 from packaging.version import Version
@@ -44,10 +45,10 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return False
 
     op = tokens[0]
-    os = tokens[1]
+    operSys = tokens[1]
 
     if op in ('=', '==',):
-        if distribId != os:
+        if distribId != operSys:
             return False
 
         if len(tokens) < 3:
@@ -55,7 +56,7 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return distribVersion == tokens[2]
 
     if op in ('!', '!=',):
-        if distribId == os:
+        if distribId == operSys:
             return False
 
         if len(tokens) < 3:
@@ -63,7 +64,7 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return distribVersion != tokens[2]
 
     # do version comparisons from here
-    if distribId != os:
+    if distribId != operSys:
         return False
 
     if len(tokens) < 3:
@@ -171,3 +172,28 @@ class NativePath:
 
     def __str__(self) -> str:
         return self.prefix + str(pathlib.PurePath(*self.items)) + self.suffix
+
+
+def findInPATH(name: str) -> str:
+    for p in os.environ.get('PATH', '').split(os.pathsep):
+        fpath = os.path.join(p, name)
+        if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
+            return fpath
+    return None
+
+def escapeForPowershell(s):
+    ret = ''
+    haveSpace = False
+
+    for c in s:
+        if c == '\\':
+            c = '\\\\'
+        elif c == ' ':
+            haveSpace = True
+
+        ret += c
+
+    if haveSpace:
+        return  "'" + ret + "'"
+
+    return ret

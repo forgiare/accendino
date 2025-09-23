@@ -15,6 +15,7 @@ from accendino.localdeps import BrewManager, DpkgManager, RpmManager, WindowsMan
 from accendino.sources import GitSource
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath
+from accendino.toolchain import getToolchain
 
 
 def doHelp(args, is_error) -> int:
@@ -136,6 +137,8 @@ class AccendinoConfig:
         self.resumeFrom = None
         self.maxJobs = 5
         self.crossCompilation = False
+        self.toolchain = 'default'
+        self.toolchainObj = None
 
         localMachine = platform.machine()
         self.localArch = self.targetArch = ARCHS_MAP.get(localMachine, localMachine)
@@ -312,19 +315,12 @@ class AccendinoConfig:
             longName += f'->{self.targetDistrib}@{self.targetArch}'
 
         packagesToCheck = []
-        if self.crossCompilation:
-            logging.debug('adding standard cross compilation toolchain')
-            stdCrossCompilers = {
-                'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
-                'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
-                'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
-                'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
-            }
-            packagesToCheck += stdCrossCompilers.get(longName, [])
-
+        toolchainArtifacts = []
         for item in buildItems:
             if isinstance(item, str):
                 continue
+
+            toolchainArtifacts += item.toolchainArtifacts
 
             if longName in item.pkgs:
                 pkgs = item.pkgs[longName]
@@ -338,13 +334,16 @@ class AccendinoConfig:
             packagesToCheck += pkgs[:]
 
         packagesToCheck = list(set(packagesToCheck))
+        toolchainArtifacts = list(set(toolchainArtifacts))
 
+        pkgManager = None
         if self.distribId in ('Ubuntu', 'Debian', ):
             pkgManager = DpkgManager()
         elif self.distribId in ('Fedora', 'RedHat', ):
             pkgManager = RpmManager()
         elif self.distribId in ('Windows',):
             pkgManager = WindowsManager()
+            packagesToCheck.append('path/powershell.exe')
         elif self.distribId in ('Darwin',):
             pkgManager = BrewManager()
         elif self.distribId in ('FreeBSD',):
@@ -353,15 +352,21 @@ class AccendinoConfig:
             pkgManager = PacmanManager()
 
         if pkgManager:
+            if not self.toolchainObj.packagesCheck(pkgManager, toolchainArtifacts, True):
+                logging.error(" * package requirements not met")
+                return 5
+
             toInstall = pkgManager.checkMissing(packagesToCheck)
             if toInstall is None:
                 logging.error(" * package requirements not met")
-                sys.exit(5)
+                return 5
 
             if toInstall:
                 if not pkgManager.installPackages(toInstall):
                     logging.error(" * error during package installation")
-                    sys.exit(4)
+                    return 4
+
+        return 0
 
     def createBuildPlan(self, itemsToBuild, buildPlan) -> None:
         ''' '''
@@ -488,7 +493,8 @@ def run(args: T.List[str]) -> int:
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=",
-        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "version"
+        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
+        "version"
     ])
 
     for option, value in opts:
@@ -533,6 +539,8 @@ def run(args: T.List[str]) -> int:
                 config.targetArch = 'x86_64'
             else:
                 config.targetDistrib = value
+        elif option in ('--toolchain',):
+            config.toolchain = value
         elif option in ("--project", ):
             config.projectName = value
         else:
@@ -542,7 +550,7 @@ def run(args: T.List[str]) -> int:
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
-        logging.info(' * no source file provided using default ogon.conf')
+        logging.info(' * no source file provided using default ogon.accendino')
         config.sources += ['ogon.accendino']
 
     (distribId, distribVersion) = detectPlatform()
@@ -576,9 +584,21 @@ def run(args: T.List[str]) -> int:
 
         logging.debug(f" * build plan: [{', '.join(items)}]")
 
-    if config.checkPackages:
-        config.treatPlatformPackages(buildPlan)
+    # grab a toolchain
+    config.toolchainObj = getToolchain(config.toolchain, config)
+    if not config.toolchainObj:
+        logging.error(f"unable to find toolchain {config.toolchain}")
+        return 2
 
+    if config.checkPackages:
+        retCode = config.treatPlatformPackages(buildPlan)
+        if retCode:
+            return retCode
+
+    logging.debug('   ==> activating toolchain')
+    if not config.toolchainObj.activate():
+        logging.error('error activating toolchain')
+        return 6
 
     def buildModule(buildItem) -> bool:
         ''' '''

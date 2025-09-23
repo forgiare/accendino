@@ -4,6 +4,7 @@ import typing as T
 import re
 
 from zenlog import log as logging
+from accendino.utils import findInPATH
 
 
 class PackageManager:
@@ -105,13 +106,6 @@ class BrewManager(PackageManager):
         return os.system(cmd) == 0
 
 
-def findInPATH(name: str) -> str:
-    for p in os.environ.get('PATH', '').split(os.pathsep):
-        fpath = os.path.join(p, name)
-        if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
-            return fpath
-    return None
-
 class InPathSubManager(PackageManager):
     ''' package manager that checks for programs in PATH '''
 
@@ -193,7 +187,7 @@ class WindowsManager(PackageManager):
 
                     if manager == 'choco':
                         if self.choco:
-                            if not self.choco.checkMissing([package]):
+                            if len(self.choco.checkMissing([package])) == 0:
                                 found = True
                                 break
                             if not cand:

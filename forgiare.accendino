@@ -3,7 +3,7 @@ include('ogon.accendino')
 ARTIFACTS += [
 	CMakeBuildArtifact('ogon-forgiare', ['freerdp2'], GitSource('https://github.com/forgiare/ogon.git', 'future'),
                                     OGON_opts, parallelJobs=True, provides='ogon',
-        pkgs = pickPkgDeps('ogon')
+        pkgs=pickPkgDeps('ogon'), toolchainArtifacts='c,c++'
     ),
     AutogenBuildArtifact('ogon-xserver-forgiare', pickDeps('ogon-xserver'),
 		GitSource('https://github.com/linuxrrze/xorg-xserver.git', 'master'),

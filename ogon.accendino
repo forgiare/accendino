@@ -42,14 +42,16 @@ ARTIFACTS += [
         pkgs = {
             UBUNTU_LIKE: ['qtbase5-dev', 'qttools5-dev', 'qttools5-dev-tools'],
             REDHAT_LIKE: ['qt5-qttools-devel']
-        }
+        },
+        toolchainArtifacts='c++'
     ),
 
     CMakeBuildArtifact('ogon-channels', ['ogon'], GitSource('https://github.com/ogon-project/ogon-channels', 'master'),
         pkgs = {
             UBUNTU_LIKE: ['libfuse-dev'],
             REDHAT_LIKE: ['fuse-devel']
-        }
+        },
+        toolchainArtifacts='c++'
     ),
 
     QMakeBuildArtifact('ogon-qt-platform', ['ogon-apps'], GitSource('https://github.com/ogon-project/ogon-platform-qt.git', 'master'), EXTRA_ENV,
@@ -63,7 +65,8 @@ ARTIFACTS += [
         pkgs = {
             UBUNTU_LIKE: [],
             REDHAT_LIKE: []
-        }
+        },
+        toolchainArtifacts='c++'
     ),
 
     AutogenBuildArtifact('libxfont', [], GitSource('https://gitlab.freedesktop.org/xorg/lib/libxfont.git', 'libXfont-1.5-branch'), noconfigure=True,
