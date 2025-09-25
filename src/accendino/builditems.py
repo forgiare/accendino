@@ -6,7 +6,7 @@ import typing as T
 
 from zenlog import log as logging
 from accendino.sources import Source
-from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps
+from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell
 
 
 class BuildStepDump:
@@ -38,7 +38,13 @@ class BuildStepDump:
             if dir1 != dir2 or comment1 != comment2:
                 return False
 
-            if len(cmds1) != len(cmds2):
+            if isinstance(cmds1, RunInShell):
+                cmds1 = cmds1.expand()
+
+            if isinstance(cmds2, RunInShell):
+                cmds1 = cmds1.expand()
+
+            if len(cmds2) != len(cmds2):
                 return False
 
             j = 0
@@ -134,6 +140,7 @@ class BuildArtifact(DepsBuildArtifact):
         self.prepare_cmds = prepare_cmds[:]
         self.build_cmds = build_cmds[:]
         self.parallelJobs = True
+        self.needsMsys2 = False
 
     def _updatePATHlike(self, config, env: T.Dict[str, str], key: str, preExtra: T.List[str] = [],
                         postExtra: T.List[str] = [], sep: str = ':') -> None:
@@ -170,6 +177,9 @@ class BuildArtifact(DepsBuildArtifact):
     def _createEnvFileWin32(self, env: T.Dict[str, str], keys: T.List[str]) -> None:
         with open(self.buildDir / 'setEnv.ps1', 'wt', encoding='utf8') as f:
             self._pushPowerShellEnv(f, env, keys)
+
+            if self.needsMsys2:
+                f.write("$env:MSYS2_PATH_TYPE = 'inherit'\n")
 
 
     def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Tuple[T.Dict[str, str], T.List[str]]:
@@ -208,7 +218,9 @@ class BuildArtifact(DepsBuildArtifact):
     def _expandConfigForPath(self, item: str, _config):
         knownPaths = {
             '{srcdir}': self.sourceDir,
-            '{builddir}': self.buildDir
+            '{srcdir_posix}': self.sourceDir.as_posix(),
+            '{builddir}': self.buildDir,
+            '{builddir_posix}': self.buildDir.as_posix(),
         }
         return knownPaths.get(item, item)
 
@@ -284,6 +296,8 @@ class BuildArtifact(DepsBuildArtifact):
     def _createPrepareFileWin32(self, config, env, xkeys) -> None:
         with open(self.buildDir / WIN_PREPARE_SCRIPT, "wt", encoding='utf8') as f:
             f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
+            if self.needsMsys2:
+                f.write("$Env:MSYS2_PATH_TYPE = 'inherit'\n")
 
             self._pushPowerShellEnv(f, env, xkeys)
 
@@ -303,7 +317,8 @@ class BuildArtifact(DepsBuildArtifact):
                     f.write(f'cd "{path}"\n')
 
                 cmd = self._expandConfigInlist(cmd, config)
-                f.write(f'& {" ".join(cmd)}\n\n')
+                cmdStr = "' '".join(cmd)
+                f.write(f"& '{cmdStr}'\n\n")
 
                 lastDir = path
 
@@ -361,7 +376,7 @@ class BuildArtifact(DepsBuildArtifact):
         ret = False
         if config.distribId in ('Windows', ):
             logging.debug(f'running powershell .\\{WIN_PREPARE_SCRIPT}')
-            ret = self.execute(['powershell', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
+            ret = self.execute(['powershell', '-ExecutionPolicy', 'Unrestricted', '-File', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
         else:
             ret = self.runCommands(self.prepare_cmds, env, config)
 
@@ -388,6 +403,8 @@ class BuildArtifact(DepsBuildArtifact):
     def _createWin32BuildScript(self, config, env: T.Dict[str, str], xkeys) -> bool:
         with open(self.buildDir / WIN_BUILD_SCRIPT, "wt", encoding='utf8') as f:
             f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
+            if self.needsMsys2:
+                f.write("$Env:MSYS2_PATH_TYPE = 'inherit'\n")
 
             self._pushPowerShellEnv(f, env, xkeys)
 
@@ -423,7 +440,8 @@ class BuildArtifact(DepsBuildArtifact):
                 return False
 
             logging.debug(f'running powershell .\\{WIN_BUILD_SCRIPT}')
-            return self.execute(['powershell', f'.\\{WIN_BUILD_SCRIPT}'], env, self.buildDir) and self.createBuiltFile()
+            cmd = ['powershell', '-ExecutionPolicy', 'Unrestricted', '-File', f'.\\{WIN_BUILD_SCRIPT}']
+            return self.execute(cmd, env, self.buildDir) and self.createBuiltFile()
 
         return self.runCommands(self.build_cmds, env, config) and self.createBuiltFile()
 
@@ -431,7 +449,7 @@ class BuildArtifact(DepsBuildArtifact):
     def setMakeNinjaCommands(self, config, cmd='ninja', build_target='all', install_target='install', parallelJobs=True,
                             runInstallDir='{builddir}') -> None:
         ''' configure build commands base on make or ninja '''
-        if cmd in ('ninja', 'make',):
+        if cmd in ('ninja', 'make', 'makeMsys2',):
             maxJobs = 0
             if parallelJobs:
                 maxJobs = config.maxJobs
@@ -441,10 +459,16 @@ class BuildArtifact(DepsBuildArtifact):
             else:
                 concurrentArgs = f'-j{maxJobs}'
 
-            self.build_cmds = [
-                ([cmd, '-C', '{builddir}', concurrentArgs, build_target], '{builddir}', 'building'),
-                ([cmd, '-C', runInstallDir, concurrentArgs, install_target], '{builddir}', 'installing'),
-            ]
+            if cmd == 'makeMsys2':
+                self.build_cmds = [
+                    (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, build_target]).expand(), '{builddir_posix}', 'building'),
+                    (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, install_target]).expand(), '{builddir_posix}', 'installing'),
+                ]
+            else:
+                self.build_cmds = [
+                    ([cmd, '-C', '{builddir}', concurrentArgs, build_target], '{builddir}', 'building'),
+                    ([cmd, '-C', runInstallDir, concurrentArgs, install_target], '{builddir}', 'installing'),
+                ]
         elif cmd in ('nmake',):
             self.build_cmds = [
                 ([cmd, build_target], '{builddir}', 'building'),
@@ -479,10 +503,20 @@ class CustomCommandBuildArtifact(BuildArtifact):
         self.install_target = install_target
 
         for cmd in prepare_src_cmds:
+            if isinstance(cmd, RunInShell):
+                cmd = cmd.expand()
+                self.needsMsys2 = True
             self.prepare_cmds.append((cmd, '{srcdir}', f'preparing sources {name}'))
 
         for cmd in prepare_cmds:
+            if isinstance(cmd, RunInShell):
+                cmd = cmd.expand()
+                self.needsMsys2 = True
+
             self.prepare_cmds.append((cmd, '{builddir}', f'preparing build tree {name}'))
+
+        if builder == 'makeMsys2':
+            self.needsMsys2 = True
 
 
     def prepare(self, config) -> bool:
