@@ -18,6 +18,11 @@ class IToolChain:
 
     def packagesCheck(self, packageManager: PackageManager, artifacts: T.List[str], doInstall: bool) -> bool:
         '''
+            checks that the toolchain have the necessary packages for the given toolchain artifacts
+            @param packageManager: the manager for local package
+            @param artifacts: a list of toolchain artifacts
+            @param doInstall: tell if we should install missing packages
+            @return if the operation was successful
         '''
         config = self.config
         shortName = f"{config.distribId}"
@@ -44,9 +49,15 @@ class IToolChain:
         return True
 
     def activate(self) -> bool:
+        ''' Activates the toolchain, eventually doing some setup
+            @return if the operation was successful
+        '''
         return True
 
     def prepareItems(self) -> str:
+        ''' returns some content to put in scripts to activate this toolchain
+            @return the string content
+        '''
         return ''
 
 KNOWN_VS_FLAVORS = ('msvc', 'clang')
@@ -58,10 +69,10 @@ class VsToolChain(IToolChain):
         IToolChain.__init__(self, 'MsvcToolChain', config)
         self.artifactRequires = {
             'c': {
-                'Windows': ['choco/vswhere|path/vswhere'],
+                'Windows': ['choco/vswhere|path/vswhere.exe'],
             },
             'c++': {
-                'Windows': ['choco/vswhere|path/vswhere'],
+                'Windows': ['choco/vswhere|path/vswhere.exe'],
             },
         }
         self.installationPath = None
@@ -111,21 +122,7 @@ class VsToolChain(IToolChain):
         self.installationPath = pathlib.PurePath(props['installationPath'])
         self.setvarsPath = self.installationPath / "Common7" / "Tools" / "VsDevCmd.bat"
         self.setvarsPs1Path = self.installationPath / "Common7" / "Tools" / "Launch-VsDevShell.ps1"
-
         return True
-        '''
-        VSDEVCMD_ARCHS = {
-            "x86_64": "amd64",
-        }
-        cmd = [str(self.setvarsPath), f'-Arch={VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)}']
-        logging.debug(f' * executing {" ".join(cmd)}')
-        p = subprocess.run(cmd)
-        if p.returncode != 0:
-            logging.error(f'error running vsdevcmd, returnCode={p.returncode}')
-            return False
-
-        return True
-        '''
 
     def prepareItems(self) -> str:
         VSDEVCMD_ARCHS = {
@@ -155,8 +152,6 @@ class GccToolChain(IToolChain):
             })
         }
 
-    def detect(self):
-        return self
 
 class ClangToolChain(IToolChain):
     ''' Toolchain with clang '''
@@ -171,9 +166,6 @@ class ClangToolChain(IToolChain):
                 'Debian|Ubuntu|Fedora|Redhat': ['clang']
             })
         }
-
-    def detect(self):
-        return self
 
 
 class DefaultToolChain(IToolChain):

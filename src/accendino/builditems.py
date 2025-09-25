@@ -360,6 +360,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         ret = False
         if config.distribId in ('Windows', ):
+            logging.debug(f'running powershell .\\{WIN_PREPARE_SCRIPT}')
             ret = self.execute(['powershell', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
         else:
             ret = self.runCommands(self.prepare_cmds, env, config)
