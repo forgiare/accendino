@@ -14,7 +14,7 @@ from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuild
 from accendino.localdeps import BrewManager, DpkgManager, RpmManager, WindowsManager, PkgManager, PacmanManager
 from accendino.sources import GitSource
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
-    NativePath
+    NativePath, RunInShell
 from accendino.toolchain import getToolchain
 
 
@@ -223,6 +223,7 @@ class AccendinoConfig:
             'logging': logging,
             'DepsAdjuster': DepsAdjuster,
             'NativePath': NativePath,
+            'RunInShell': RunInShell,
             'accendinoVersion': accendino.__version__,
             'UBUNTU_LIKE': 'Debian|Ubuntu',
             'REDHAT_LIKE': 'Fedora|Redhat',
