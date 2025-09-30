@@ -5,6 +5,16 @@
 * updated accendino files for FreeBSD packages
 * rebuild an artifact when one of its dependency has been rebuilt more recently
 * included files can be included just once
+* introduced the toolchain concept, that allows to setup the environment correctly for MSVC or other build chains
+* search for accendino files in local directory and then in pockets by default when passed on the command line
+* introduce the msys2 system that allows to install package on msys2 and run scripts there. That allows to build
+  ffmpeg under windows with MSVC (run configure script under msys2)
+* adds a `RunInShell` special class that allows to specify some commands that must be run in a shell, so either the default
+shell on unixes or msys2 on Windows
+* added accendino files for `cairo`, `cjson`, `qfreerdp_platform`
+* the windows build system has been reworked to generate and use powershell script, that allows to pass env variables from VS devEnv scripts
+* various fixes in windows packages manager (choco and inPath)
+
 
 
 ## 0.5.9

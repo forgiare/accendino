@@ -111,12 +111,14 @@ Some examples:
     For example, `DepsAdjuster('< Debian 11.00', add=['pkg1'])` will add `pkg1` as dependency if we're building under a Debian with a version before `11.00`. `DepsAdjuster` can be
     used for build artifacts dependencies or for platform packages. The common cases are: on all Ubuntu version you need the same platform packages except that the package is renamed starting at
     a given version. Another common case is build artifact dependencies, where a platform lib is not available after a given Ubuntu version and you need to build it by hand and so add a build artifact
-    dependency.
+    dependency
 * `logging`: an export of the `zenlog` module. You can use it to log your messages with for instance `logging.debug('hello from the accendino file')`
-* `NativePath(*args, **kwargs)`: an object representing a native path (with `\` under windows or `/` under posix). `args` are the path components of the path.
+* `NativePath(*args, **kwargs)`: an object representing a native path (with `\` under windows or `/` under posix). `args` are the path components of the path
     If needed you can ship `prefix=<prefix>` or `suffix=<suffix>`, these strings are added before or after the generated path. For instance
     `NativePath('{srcdir}', 'toto', 'bin', prefix='--mypath=', suffix='-after')` will generate `--mypath={srcdir}/toto/bin-after` under posix or
     `--mypath={srcdir}\toto\bin-after` under windows. This is very usefull if you need to pass a path to a tool that must be in native path notation.
+* `RunInShell(args: T.list)`: notify that the given command shall always be run on a real shell so either the regular shell under unix, or the msys2   
+    shell under windows
 
 
 ### Sources
@@ -169,6 +171,8 @@ All build artifacts share the same parameters:
 * `srcObj : accendino.sources.Source`: a [`accendino.sources.Source`](#sources) object that will checkout your sources
 * `provides : List[str] | str`: a list of build artifacts that this artifact provides. For instance you can have a `freerdp2` artifact that provides `freerdp`
 * `pkgs : Dict[str, List[str]]`: a dictionary of platform packages dependencies, see the [previous paragraph](#platform-packages-dependencies) for the syntax of this dictionary
+* `toolchainArtifacts = 'c'`: a list or a coma separated string of toolchain artificats that you are needed by this build item. Usual values argument
+ `c` or `c++`, it will be used to add package requirements
 
 
 When giving commands, you can use these format string they will be replaced by their respective values:
