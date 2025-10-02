@@ -86,7 +86,8 @@ for isStatic in (True, False,):
                 pkgs = {
                     REDHAT_LIKE: freerdp_fedora_redhat_base,
                     UBUNTU_LIKE: freerdp_ubuntu_debian_common
-                }
+                },
+                toolchainArtifacts='c,c++'
             ),
 
             CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
@@ -94,7 +95,8 @@ for isStatic in (True, False,):
                 options, provides=provides,
                 pkgs = {
                     REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
-                    UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev'],
-                }
+                    UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev', 'libkrb5-dev'],
+                },
+                toolchainArtifacts='c,c++'
             ),
         ]

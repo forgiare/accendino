@@ -194,6 +194,11 @@ class BuildArtifact(DepsBuildArtifact):
             self._updatePATHlike(config, r, 'PATH', [pathlib.PurePath(config.prefix, 'bin')], sep=os.pathsep)
             xkeys.append('PATH')
 
+        toolchainEnv = config.toolchainObj.extraEnv(self.toolchainArtifacts)
+        if toolchainEnv:
+            xkeys += toolchainEnv.keys()
+            r.update(toolchainEnv)
+
         if createEnvFile:
             fileDumper = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
             fileDumper(r, xkeys)
@@ -234,7 +239,9 @@ class BuildArtifact(DepsBuildArtifact):
     def checkout(self, config) -> bool:
         self.sourceDir = config.sourcesDir / self.name
 
-        self.buildDir = config.buildsDir / self.name / f"{config.targetDistrib}-{config.targetArch}-{config.buildType}"
+        dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{config.buildType}"
+        self.buildDir = config.buildsDir / self.name / dirName
+
         os.makedirs(self.buildDir, exist_ok=True)
 
         self.logFile = self.buildDir / 'build.log'

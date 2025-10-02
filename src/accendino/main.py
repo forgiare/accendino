@@ -411,6 +411,10 @@ class AccendinoConfig:
             # already included
             return True
 
+        if fpath is None:
+            logging.error(f'file {fname} not found')
+            return False
+
         with open(fpath, "rt", encoding="utf8") as f:
             code = compile(f.read(), os.path.basename(fpath), "exec")
             exec(code, {}, self.context)
@@ -596,7 +600,7 @@ def run(args: T.List[str]) -> int:
         if retCode:
             return retCode
 
-    logging.debug('   ==> activating toolchain')
+    logging.debug(f'   ==> activating toolchain {config.toolchainObj.description}')
     if not config.toolchainObj.activate():
         logging.error('error activating toolchain')
         return 6

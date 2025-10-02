@@ -60,6 +60,14 @@ class IToolChain:
         '''
         return ''
 
+    def extraEnv(self, _artifacts) -> T.Dict[str, str]:
+        ''' called to add some env variable for the toolchain for the given artifacts. Typically it
+            sets variables like CC or CXX
+            @param _artifacts: list of artifacts
+            @returns some extra environment variable when building
+        '''
+        return {}
+
 KNOWN_VS_FLAVORS = ('msvc', 'clang')
 
 class VsToolChain(IToolChain):
@@ -152,12 +160,23 @@ class GccToolChain(IToolChain):
             })
         }
 
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        ''' returns some extra environment variables
+        '''
+        ret = {}
+        for artifact in artifacts:
+            if artifact == 'c':
+                ret['CC'] = 'gcc'
+            elif artifact == 'c++':
+                ret['CXX'] = 'g++'
+        return ret
+
 
 class ClangToolChain(IToolChain):
     ''' Toolchain with clang '''
 
     def __init__(self, config):
-        IToolChain.__init__(self, 'ClangToolChain', config)
+        IToolChain.__init__(self, 'Clang', config)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Debian|Ubuntu|Fedora|Redhat': ['clang']
@@ -166,6 +185,18 @@ class ClangToolChain(IToolChain):
                 'Debian|Ubuntu|Fedora|Redhat': ['clang']
             })
         }
+
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        ''' returns some extra environment variables
+        '''
+        ret = {}
+        for artifact in artifacts:
+            if artifact == 'c':
+                ret['CC'] = 'clang'
+            elif artifact == 'c++':
+                ret['CXX'] = 'clang++'
+        return ret
+
 
 
 class DefaultToolChain(IToolChain):
@@ -198,6 +229,10 @@ class DefaultToolChain(IToolChain):
 
     def prepareItems(self) -> str:
         return self.selectedObj.prepareItems()
+
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        return self.selectedObj.extraEnv(artifacts)
+
 
 
 TOOLCHAINS = {
