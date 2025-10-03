@@ -35,23 +35,31 @@ if ffmpeg_fromSources:
             '--disable-xlib', '--enable-avcodec',
         ]
 
-    nasmForAll = {
+    ffmpegPkgs = {
         'Darwin': ['nasm'],
-        'Windows': ['choco/nasm|path/nasm'],
+        'Windows': ['choco/nasm|path/nasm', 'msys2/make', 'msys2/yasm', 'msys2/diffutils'],
     }
 
+    builder = 'make'
+    configureCmd = NativePath('{srcdir}', 'configure')
+    if distribId == 'Windows':
+        builder = 'makeMsys2'
+        configureCmd = '{srcdir_posix}/configure'
+        extraArgs += ['--toolchain=msvc']
+
     for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
-        nasmForAll[f'{distrib}'] = ['nasm']
-        nasmForAll[f'{distrib}->mingw@x86_64'] = ['nasm']
+        ffmpegPkgs[f'{distrib}'] = ['nasm']
+        ffmpegPkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', [],
             GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
             prepare_cmds=[
-                [NativePath('{srcdir}', 'configure'), '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs
+                RunInShell([configureCmd, '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs),
             ],
-            pkgs=nasmForAll,
-            provides=['ffmpeg-artifact']
+            pkgs=ffmpegPkgs,
+            provides=['ffmpeg-artifact'],
+            builder=builder
         ),
     ]
 

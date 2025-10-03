@@ -6,6 +6,7 @@ single-line-class-stmt=no
 
 [BASIC]
 function-naming-style=camelCase
+max-nested-blocks=6
 
 [MESSAGES CONTROL]
 disable=

@@ -1,8 +1,10 @@
+import os
 import pathlib
 import typing as T
 from packaging.version import Version
 
 from zenlog import log as logging
+from accendino.platform import accendinoPlatform
 
 def checkAccendinoVersion(cond: str, v: str) -> bool:
     ''' '''
@@ -44,10 +46,10 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return False
 
     op = tokens[0]
-    os = tokens[1]
+    operSys = tokens[1]
 
     if op in ('=', '==',):
-        if distribId != os:
+        if distribId != operSys:
             return False
 
         if len(tokens) < 3:
@@ -55,7 +57,7 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return distribVersion == tokens[2]
 
     if op in ('!', '!=',):
-        if distribId == os:
+        if distribId == operSys:
             return False
 
         if len(tokens) < 3:
@@ -63,7 +65,7 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return distribVersion != tokens[2]
 
     # do version comparisons from here
-    if distribId != os:
+    if distribId != operSys:
         return False
 
     if len(tokens) < 3:
@@ -171,3 +173,42 @@ class NativePath:
 
     def __str__(self) -> str:
         return self.prefix + str(pathlib.PurePath(*self.items)) + self.suffix
+
+class RunInShell:
+    ''' class that represent something to execute in a shell (UNIX shell or msys2) '''
+    def __init__(self, args):
+        self.items = args[:]
+
+    def expand(self):
+        if accendinoPlatform.isWindows:
+            cmdItems = []
+            for item in self.items:
+                cmdItems.append(str(item))
+
+            return [accendinoPlatform.msys2path, '-defterm', '-no-start', '-mingw64', '-here', '-c', ' '.join(cmdItems)]
+
+        return self.items
+
+def findInPATH(name: str) -> str:
+    for p in os.environ.get('PATH', '').split(os.pathsep):
+        fpath = os.path.join(p, name)
+        if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
+            return fpath
+    return None
+
+def escapeForPowershell(s):
+    ret = ''
+    haveSpace = False
+
+    for c in s:
+        if c == '\\':
+            c = '\\\\'
+        elif c == ' ':
+            haveSpace = True
+
+        ret += c
+
+    if haveSpace:
+        return  "'" + ret + "'"
+
+    return ret

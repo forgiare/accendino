@@ -14,7 +14,8 @@ from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuild
 from accendino.localdeps import BrewManager, DpkgManager, RpmManager, WindowsManager, PkgManager, PacmanManager
 from accendino.sources import GitSource
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
-    NativePath
+    NativePath, RunInShell
+from accendino.toolchain import getToolchain
 
 
 def doHelp(args, is_error) -> int:
@@ -136,6 +137,8 @@ class AccendinoConfig:
         self.resumeFrom = None
         self.maxJobs = 5
         self.crossCompilation = False
+        self.toolchain = 'default'
+        self.toolchainObj = None
 
         localMachine = platform.machine()
         self.localArch = self.targetArch = ARCHS_MAP.get(localMachine, localMachine)
@@ -153,28 +156,15 @@ class AccendinoConfig:
 
         def includeFn(fname: str, include_once: bool = True) -> bool:
             ''' '''
-            searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
-            if fname.startswith('.'):
-                searchPaths = []
-
             if not fname.endswith('.accendino'):
                 fname = fname + '.accendino'
 
-            for p in searchPaths:
-                fpath = os.path.join(p, fname)
-                if os.path.exists(fpath) and os.path.isfile(fpath):
-                    if include_once and fpath in self.includedFiles:
-                        logging.debug(f"file '{fpath}' already included")
-                        return True
+            logging.debug(f"including file '{fname}'")
+            ret = self.readSource(fname, include_once)
+            if ret:
+                self.includedFiles.append(fname)
+            return ret
 
-                    logging.debug(f"including file '{fpath}'")
-                    ret = self.readSources([fpath])
-                    if ret:
-                        self.includedFiles.append(fpath)
-                    return ret
-
-            logging.error(f'unable to find {fname} in pockets')
-            return False
 
         def pickDeps(name: str) -> T.List[T.Any]:
             ''' '''
@@ -233,11 +223,27 @@ class AccendinoConfig:
             'logging': logging,
             'DepsAdjuster': DepsAdjuster,
             'NativePath': NativePath,
+            'RunInShell': RunInShell,
             'accendinoVersion': accendino.__version__,
             'UBUNTU_LIKE': 'Debian|Ubuntu',
             'REDHAT_LIKE': 'Fedora|Redhat',
             'checkAccendinoVersion': checkAccendinoVersionFn,
         }
+
+    def findSourceFile(self, fname: str, include_once: bool = True) -> str:
+        searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
+        if fname.startswith('.'):
+            searchPaths = []
+
+        for p in searchPaths:
+            fpath = os.path.join(p, fname)
+            if os.path.exists(fpath) and os.path.isfile(fpath):
+                if include_once and fpath in self.includedFiles:
+                    logging.debug(f"file '{fpath}' already included")
+                    return True
+                return fpath
+
+        return None
 
     def cmakeBuildType(self) -> str:
         ''' '''
@@ -310,19 +316,12 @@ class AccendinoConfig:
             longName += f'->{self.targetDistrib}@{self.targetArch}'
 
         packagesToCheck = []
-        if self.crossCompilation:
-            logging.debug('adding standard cross compilation toolchain')
-            stdCrossCompilers = {
-                'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
-                'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
-                'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
-                'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
-            }
-            packagesToCheck += stdCrossCompilers.get(longName, [])
-
+        toolchainArtifacts = []
         for item in buildItems:
             if isinstance(item, str):
                 continue
+
+            toolchainArtifacts += item.toolchainArtifacts
 
             if longName in item.pkgs:
                 pkgs = item.pkgs[longName]
@@ -336,13 +335,16 @@ class AccendinoConfig:
             packagesToCheck += pkgs[:]
 
         packagesToCheck = list(set(packagesToCheck))
+        toolchainArtifacts = list(set(toolchainArtifacts))
 
+        pkgManager = None
         if self.distribId in ('Ubuntu', 'Debian', ):
             pkgManager = DpkgManager()
         elif self.distribId in ('Fedora', 'RedHat', ):
             pkgManager = RpmManager()
         elif self.distribId in ('Windows',):
             pkgManager = WindowsManager()
+            packagesToCheck.append('path/powershell.exe')
         elif self.distribId in ('Darwin',):
             pkgManager = BrewManager()
         elif self.distribId in ('FreeBSD',):
@@ -351,15 +353,21 @@ class AccendinoConfig:
             pkgManager = PacmanManager()
 
         if pkgManager:
-            toInstall = pkgManager.check(packagesToCheck)
+            if not self.toolchainObj.packagesCheck(pkgManager, toolchainArtifacts, True):
+                logging.error(" * package requirements not met")
+                return 5
+
+            toInstall = pkgManager.checkMissing(packagesToCheck)
             if toInstall is None:
                 logging.error(" * package requirements not met")
-                sys.exit(5)
+                return 5
 
             if toInstall:
                 if not pkgManager.installPackages(toInstall):
                     logging.error(" * error during package installation")
-                    sys.exit(4)
+                    return 4
+
+        return 0
 
     def createBuildPlan(self, itemsToBuild, buildPlan) -> None:
         ''' '''
@@ -396,12 +404,20 @@ class AccendinoConfig:
                 buildPlan.append(itemStr)
 
 
-    def readSources(self, fnames: T.List[str]) -> bool:
+    def readSource(self, fname: str, include_once: bool) -> bool:
         ''' '''
-        for fname in fnames:
-            with open(fname, "rt", encoding="utf8") as f:
-                code = compile(f.read(), os.path.basename(fname), "exec")
-                exec(code, {}, self.context)
+        fpath = self.findSourceFile(fname, include_once)
+        if isinstance(fpath, bool):
+            # already included
+            return True
+
+        if fpath is None:
+            logging.error(f'file {fname} not found')
+            return False
+
+        with open(fpath, "rt", encoding="utf8") as f:
+            code = compile(f.read(), os.path.basename(fpath), "exec")
+            exec(code, {}, self.context)
 
         return True
 
@@ -482,7 +498,8 @@ def run(args: T.List[str]) -> int:
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=",
-        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "version"
+        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
+        "version"
     ])
 
     for option, value in opts:
@@ -527,6 +544,8 @@ def run(args: T.List[str]) -> int:
                 config.targetArch = 'x86_64'
             else:
                 config.targetDistrib = value
+        elif option in ('--toolchain',):
+            config.toolchain = value
         elif option in ("--project", ):
             config.projectName = value
         else:
@@ -536,8 +555,8 @@ def run(args: T.List[str]) -> int:
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
-        logging.info(' * no source file provided using default ogon.conf')
-        config.sources += ['ogon.conf']
+        logging.info(' * no source file provided using default ogon.accendino')
+        config.sources += ['ogon.accendino']
 
     (distribId, distribVersion) = detectPlatform()
 
@@ -545,7 +564,10 @@ def run(args: T.List[str]) -> int:
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
 
-    config.readSources(config.sources)
+    for f in config.sources:
+        if not config.readSource(f, True):
+            logging.error(f"error interpreting {f}")
+            return 2
     config.finalizeConfig()
 
     retCode = createWorkTree(config)
@@ -567,9 +589,21 @@ def run(args: T.List[str]) -> int:
 
         logging.debug(f" * build plan: [{', '.join(items)}]")
 
-    if config.checkPackages:
-        config.treatPlatformPackages(buildPlan)
+    # grab a toolchain
+    config.toolchainObj = getToolchain(config.toolchain, config)
+    if not config.toolchainObj:
+        logging.error(f"unable to find toolchain {config.toolchain}")
+        return 2
 
+    if config.checkPackages:
+        retCode = config.treatPlatformPackages(buildPlan)
+        if retCode:
+            return retCode
+
+    logging.debug(f'   ==> activating toolchain {config.toolchainObj.description}')
+    if not config.toolchainObj.activate():
+        logging.error('error activating toolchain')
+        return 6
 
     def buildModule(buildItem) -> bool:
         ''' '''
