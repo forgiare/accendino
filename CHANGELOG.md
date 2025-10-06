@@ -5,7 +5,9 @@
 * updated accendino files for FreeBSD packages
 * rebuild an artifact when one of its dependency has been rebuilt more recently
 * included files can be included just once
-* introduced the toolchain concept, that allows to setup the environment correctly for MSVC or other build chains
+* introduced the toolchain concept, that allows to setup the environment correctly for MSVC or other build chains.
+  So `BuildArtifact` have the new `toolchainArtifacts` argument to give the artifacts to pull from the toolchain (only
+  the `c` artifact by default)
 * search for accendino files in local directory and then in pockets by default when passed on the command line
 * introduce the msys2 system that allows to install package on msys2 and run scripts there. That allows to build
   ffmpeg under windows with MSVC (run configure script under msys2)

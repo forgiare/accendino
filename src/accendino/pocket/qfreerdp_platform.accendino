@@ -23,6 +23,7 @@ for version in (5, 6,):
         MesonBuildArtifact(f'qfreerdp_platform-qt{version}', ['freerdp3'], GitSource('https://github.com/hardening/qfreerdp_platform.git', 'master'),
             pkgs=qfreerdpPkgs,
             mesonOpts=[f'-Dqt_version=qt{version}', '-Dglobal_install=false'],
-            provides=['qfreerdp_platform']
+            provides=['qfreerdp_platform'],
+            toolchainArtifacts='c++'
         )
     )
