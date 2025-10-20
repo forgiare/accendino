@@ -197,6 +197,46 @@ class ClangToolChain(IToolChain):
                 ret['CXX'] = 'clang++'
         return ret
 
+class MingwToolChain(IToolChain):
+    ''' Toolchain with mingw '''
+
+    def __init__(self, config):
+        IToolChain.__init__(self, 'mingw', config)
+        self.artifactRequires = {
+            'c': treatPackageDeps({
+                'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
+                'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
+                'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
+                'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
+            }),
+            'c++': treatPackageDeps({
+                'Ubuntu->mingw@i686': ['g++-mingw-w64-i686-win32'],
+                'Ubuntu->mingw@x86_64': ['g++-mingw-w64-x86-64-win32'],
+            })
+        }
+        self.config = config
+
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        VAR_ENV_PER_ARTIFACT = {
+            'c': {
+                'i686': {'CC': 'i686-w64-mingw32-gcc'},
+                'x86_64': {'CC': 'x86_64-w64-mingw32-gcc'},
+            },
+            'c++': {
+                'i686': {'CXX': 'i686-w64-mingw32-c++'},
+                'x86_64': {'CXX': 'x86_64-w64-mingw32-c++'},
+            }
+        }
+
+        ret = {}
+        for artifact in artifacts:
+            if artifact in VAR_ENV_PER_ARTIFACT:
+                arch = self.config.targetArch
+                if arch in VAR_ENV_PER_ARTIFACT[artifact]:
+                    ret.update(VAR_ENV_PER_ARTIFACT[artifact][arch])
+
+        return ret
+
 
 
 class DefaultToolChain(IToolChain):
@@ -240,6 +280,7 @@ TOOLCHAINS = {
     'gcc': GccToolChain,
     'clang': ClangToolChain,
     'vs': VsToolChain,
+    'mingw': MingwToolChain,
     'none': IToolChain,
 }
 

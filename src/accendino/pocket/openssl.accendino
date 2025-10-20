@@ -10,7 +10,7 @@ openssl_fromSources = False
 openssl_pkgDeps={
     UBUNTU_LIKE: ['libssl-dev'],
     REDHAT_LIKE: ['openssl-devel'],
-    'Windows': ['path/perl'],
+    'Windows': ['choco/strawberryperl', 'path/perl'],
     'FreeBSD': ['openssl34'],
 }
 
@@ -67,7 +67,8 @@ if openssl_fromSources:
                 prepareCmd
             ],
             build_target='build_sw', install_target='install_sw', builder=builder, pkgs=openssl_pkgDeps,
-            provides=['openssl-artifact']
+            provides=['openssl-artifact'],
+            skipToolchainEnv=crossCompilation
         ),
     ]
 

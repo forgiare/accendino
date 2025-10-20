@@ -5,9 +5,20 @@
 #
 #    Detecting or building qfreerdp_platform
 #
+#  tested options:
+#    qfreerdp_platform.freerdp if contain 'fromSource' also build freerdp3, otherwise rely on sys packages
+#
 
+qfreerdp_platformDeps = []
+qfreerdp_FreeRdpPkgs = {}
 
-include('freerdp')
+if getOption('qfreerdp_platform.freerdp', 'fromSource') == 'fromSource':
+    include('freerdp')
+    qfreerdp_platformDeps.append('freerdp3')
+else:
+    qfreerdp_FreeRdpPkgs = {
+        UBUNTU_LIKE: ['freerdp3-dev'],
+    }
 
 for version in (5, 6,):
     if version == 5:
@@ -20,8 +31,9 @@ for version in (5, 6,):
     }
 
     ARTIFACTS.append(
-        MesonBuildArtifact(f'qfreerdp_platform-qt{version}', ['freerdp3'], GitSource('https://github.com/hardening/qfreerdp_platform.git', 'master'),
-            pkgs=qfreerdpPkgs,
+        MesonBuildArtifact(f'qfreerdp_platform-qt{version}', qfreerdp_platformDeps,
+            GitSource('https://github.com/hardening/qfreerdp_platform.git', 'master'),
+            pkgs=mergePkgDeps(qfreerdpPkgs, qfreerdp_FreeRdpPkgs),
             mesonOpts=[f'-Dqt_version=qt{version}', '-Dglobal_install=false'],
             provides=['qfreerdp_platform'],
             toolchainArtifacts='c++'

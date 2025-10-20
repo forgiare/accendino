@@ -8,7 +8,7 @@ from accendino.utils import findInPATH
 from accendino.platform import accendinoPlatform
 
 
-class PackageManager:
+class PackageManagerBase:
     ''' base package manager '''
 
     def __init__(self, name: str=None) -> None:
@@ -34,11 +34,13 @@ class PackageManager:
         return False
 
 
-class DpkgManager(PackageManager):
+
+
+class DpkgManager(PackageManagerBase):
     ''' dpkg based package manager '''
 
     def __init__(self) -> None:
-        PackageManager.__init__(self, "dpkg")
+        PackageManagerBase.__init__(self, "dpkg")
 
         pack_re = re.compile(r'ii[^\w]+([^ ]+)[^\w]+([^ ]+)')
         for l in subprocess.Popen(['dpkg', '-l'], stdout=subprocess.PIPE, bufsize=1024).stdout.readlines():
@@ -66,11 +68,11 @@ class DpkgManager(PackageManager):
         return os.system(cmd) == 0
 
 
-class RpmManager(PackageManager):
+class RpmManager(PackageManagerBase):
     ''' rpm based package manager '''
 
     def __init__(self) -> None:
-        PackageManager.__init__(self, "rpm")
+        PackageManagerBase.__init__(self, "rpm")
 
         for l in subprocess.Popen(['rpm', '-qa', '--qf', '%{NAME} %{VERSION}\\n'], stdout=subprocess.PIPE, bufsize=1024) \
                             .stdout.readlines():
@@ -88,11 +90,11 @@ class RpmManager(PackageManager):
 
         return os.system(cmd) == 0
 
-class BrewManager(PackageManager):
+class BrewManager(PackageManagerBase):
     ''' brew based package manager '''
 
     def __init__(self) -> None:
-        PackageManager.__init__(self, "brew")
+        PackageManagerBase.__init__(self, "brew")
         for l in subprocess.Popen(['brew', 'list', '--formulae', '--versions'], stdout=subprocess.PIPE, bufsize=1024) \
                             .stdout.readlines():
             tokens = l.decode('utf-8').strip().split(' ', 2)
@@ -108,11 +110,11 @@ class BrewManager(PackageManager):
         return os.system(cmd) == 0
 
 
-class InPathSubManager(PackageManager):
+class InPathSubManager(PackageManagerBase):
     ''' package manager that checks for programs in PATH '''
 
     def __init__(self) -> None:
-        PackageManager.__init__(self, "inPath")
+        PackageManagerBase.__init__(self, "inPath")
         self.canInstall = False
 
     def checkMissing(self, packages: T.List[str]) -> T.List[str]:
@@ -127,11 +129,11 @@ class InPathSubManager(PackageManager):
         logging.error(f'InPathSubManager can\'t install {" ".join(packages)}')
         return False
 
-class ChocoSubManager(PackageManager):
+class ChocoManager(PackageManagerBase):
     ''' Chocolatey based package manager '''
 
     def __init__(self, chocoPath: str) -> None:
-        PackageManager.__init__(self, "chocolatey")
+        PackageManagerBase.__init__(self, "chocolatey")
         self.chocoPath = chocoPath
 
         for l in subprocess.Popen([chocoPath, 'list', '--no-color', '-r'], stdout=subprocess.PIPE, bufsize=1024) \
@@ -156,148 +158,16 @@ class ChocoSubManager(PackageManager):
         return os.system(cmd) == 0
 
 
-class WindowsManager(PackageManager):
-    ''' windows based package manager '''
-
-    def __init__(self) -> None:
-        PackageManager.__init__(self, "windows")
-
-        self.choco = None
-        chocoPath = findInPATH("choco.exe")
-        if chocoPath:
-            self.choco = ChocoSubManager(chocoPath)
-
-        self.msys2 = None
-        if accendinoPlatform.msys2path:
-            self.msys2 = Msys2Manager(accendinoPlatform.msys2path)
-
-        self.inPath = InPathSubManager()
-
-    def checkMissing(self, packages: T.List[str]) -> T.List[str]:
-        chocoPkgs = []
-        msys2Pkgs = []
-        inPathPkgs = []
-
-        ret = []
-        for p in packages:
-            alternatives = p.split('|')
-
-            if len(alternatives) > 1:
-                #
-                # handle syntax with "choco/nasm|nuget/nasm2|path/nasm.exe" that would check for
-                #  nasm with choco, then nasm2 with nuget and finally nasm.exe in the path
-                #
-                found = False
-                cand = None
-
-                for alter in alternatives:
-                    (manager, package) = alter.strip().split('/', 2)
-
-                    targets = {
-                        'choco': self.choco,
-                        'msys2': self.msys2,
-                        'path': self.inPath,
-                    }
-
-                    if not manager in targets:
-                        logging.error(f'unknown sub package manager "{manager}"')
-                        return None
-
-                    target = targets.get(manager, None)
-                    if target:
-                        if len(target.checkMissing([package])) == 0:
-                            found = True
-                            break
-                        if target.canInstall and not cand:
-                            cand = alter
-
-                if not found:
-                    if cand:
-                        logging.debug(f'{p} not found, pushing {cand} for installation')
-                        ret.append(cand)
-                    else:
-                        logging.error(f'can\'t find any alternative for {p}')
-                        return None
-
-            else:
-                (manager, package) = p.split('/', 2)
-                if manager == 'choco':
-                    chocoPkgs.append(package)
-                elif manager == 'msys2':
-                    msys2Pkgs.append(package)
-                elif manager == 'path':
-                    inPathPkgs.append(package)
-                else:
-                    logging.error(f'unknown sub package manager "{manager}"')
-                    return None
-
-        if chocoPkgs:
-            if not self.choco:
-                logging.error("some choco packages where requested but Chocolatey is not installed")
-                return None
-
-            for p in self.choco.checkMissing(chocoPkgs):
-                ret.append(f'choco/{p}')
-
-        if msys2Pkgs:
-            if not self.msys2:
-                logging.error("some msys2 packages where requested but msys2 is not installed, perhaps try 'choco install msys2'")
-                return None
-
-            for p in self.msys2.checkMissing(msys2Pkgs):
-                ret.append(f'msys2/{p}')
-
-        if inPathPkgs:
-            for p in inPathPkgs:
-                if not p.endswith('.exe'):
-                    p += '.exe'
-
-                if not findInPATH(p):
-                    logging.error(f'{p} not found in PATH')
-                    return None
-
-        return ret
-
-    def installPackages(self, packages: T.List[str]) -> bool:
-        logging.debug(f" * {self.name}, installing missing packages: {' '.join(packages)}")
-
-        chocoPkgs = []
-        msys2Pkgs = []
-
-        for p in packages:
-            if p.startswith('choco/'):
-                chocoPkgs.append(p[6:])
-            elif p.startswith('msys2/'):
-                msys2Pkgs.append(p[6:])
-
-        if chocoPkgs:
-            if not self.choco:
-                logging.error("some choco packages where requested but Chocolatey is not installed")
-                return None
-
-            if not self.choco.installPackages(chocoPkgs):
-                return False
-
-        if msys2Pkgs:
-            if not self.msys2:
-                logging.error("some msys2 packages where requested but msys2 is not installed (try 'choco install msys2' ?)")
-                return None
-
-            if not self.msys2.installPackages(msys2Pkgs):
-                return False
-
-        return True
-
-class PacmanManager(PackageManager):
+class PacmanManager(PackageManagerBase):
     ''' Pacman based package manager for Arch or msys2 '''
 
     def __init__(self, name: str = 'pacman') -> None:
-        PackageManager.__init__(self, name)
+        PackageManagerBase.__init__(self, name)
         for l in self.executePipe(['pacman', '-Q']).stdout.readlines():
             tokens = l.decode('utf-8').strip().split(' ', 2)
             self.allPackages[tokens[0]] = tokens[1]
 
-        logging.debug(f" * ${self.name} package manager: got {len(self.allPackages)} installed packages")
+        logging.debug(f" * {self.name} package manager: got {len(self.allPackages)} installed packages")
 
     def executePipe(self, cmd: T.List[str]):
         logging.debug(f"executing {' '.join(cmd)}")
@@ -332,11 +202,11 @@ class Msys2Manager(PacmanManager):
         newCmd = [self.msysShellPath, '-defterm', '-no-start', '-mingw64', '-here', '-c', " ".join(cmd)]
         return PacmanManager.executePipe(self, newCmd)
 
-class PkgManager(PackageManager):
+class PkgManager(PackageManagerBase):
     ''' pkg based package manager for FreeBSD '''
 
     def __init__(self) -> None:
-        PackageManager.__init__(self, "pkg")
+        PackageManagerBase.__init__(self, "pkg")
 
         for l in subprocess.Popen(['pkg', 'info'], stdout=subprocess.PIPE, bufsize=1024) \
                     .stdout.readlines():
@@ -356,3 +226,157 @@ class PkgManager(PackageManager):
             cmd = "sudo " + cmd
 
         return os.system(cmd) == 0
+
+class PackageManager(PackageManagerBase):
+
+    def __init__(self, name, managers):
+        PackageManagerBase.__init__(self, name)
+        self.managers = managers
+
+    def checkMissing(self, packages: T.List[str]) -> T.List[str]:
+        packagesPerManager = {}
+        ret = []
+
+        for p in packages:
+            alternatives = p.split('|')
+
+            if len(alternatives) > 1:
+                #
+                # handle syntax with "choco/nasm|nuget/nasm2|path/nasm.exe" that would check for
+                #  nasm with choco, then nasm2 with nuget and finally nasm.exe in the path
+                #
+                found = False
+                cand = None
+
+                for alter in alternatives:
+                    tokens = alter.strip().split('/', 2)
+                    if len(tokens) == 1:
+                        # no sub manager set, using default
+                        manager = ''
+                        package = tokens[0]
+                    else:
+                        (manager, package) = tokens
+
+                    managerObj = self.managers.get(manager, None)
+                    if managerObj:
+                        if len(managerObj.checkMissing([package])) == 0:
+                            found = True
+                            break
+                        if managerObj.canInstall and not cand:
+                            cand = alter
+
+                if not found:
+                    if cand:
+                        logging.debug(f'{p} not found, pushing {cand} for installation')
+                        ret.append(cand)
+                    else:
+                        logging.error(f'can\'t find any alternative for {p}')
+                        return None
+
+            else:
+                tokens = p.strip().split('/', 2)
+                if len(tokens) == 1:
+                    package = tokens[0]
+                    manager = ''
+                else:
+                    (manager, package) = tokens
+
+                if manager in packagesPerManager:
+                    packagesPerManager[manager].append(package)
+                else:
+                    packagesPerManager[manager] = [package]
+
+        helpMsg = {
+            '': "no default manager set",
+            'choco': "some choco packages where requested but Chocolatey is not installed",
+            'msys2': "some msys2 packages where requested but msys2 is not installed, perhaps try 'choco install msys2'",
+        }
+
+        for managerName, pkgs in packagesPerManager.items():
+            managerObj = self.managers.get(managerName, None)
+            # no sub manager set, using default
+            if managerObj is None:
+                msg = helpMsg.get(managerName, None)
+                if msg:
+                    logging.error(msg)
+                else:
+                    logging.error(f"no manager {managerName} set to install {pkgs}")
+                return None
+
+            toInstall = managerObj.checkMissing(pkgs)
+
+            if toInstall and not managerObj.canInstall:
+                logging.error(f"missing items for manager {managerName}, but it can't install {pkgs}")
+                return None
+
+            for p in toInstall:
+                if not managerName:
+                    ret.append(p)
+                else:
+                    ret.append(f"{managerName}/{p}")
+
+        return ret
+
+    def installPackages(self, packages: T.List[str]) -> bool:
+        logging.debug(f" * {self.name}, installing missing packages: {' '.join(packages)}")
+
+        packagesPerManager = {}
+        for p in packages:
+            tokens = p.split('/', 2)
+            if len(tokens) == 1:
+                managerName = ''
+                package = tokens[0]
+            else:
+                (managerName, package) = tokens
+
+            if managerName not in self.managers:
+                logging.error(f"{managerName} not registered")
+                return False
+
+            if managerName in packagesPerManager:
+                packagesPerManager[managerName].append(p)
+            else:
+                packagesPerManager[managerName] = [ package ]
+
+
+        for managerName, pkgs in packagesPerManager.items():
+            visualName = managerName and managerName or 'default'
+            logging.error(f'installing [{" ".join(pkgs)}] on {visualName} package manager')
+            manager = self.managers[managerName]
+            if not manager.installPackages(pkgs):
+                return False
+
+        return True
+
+
+
+def getPkgManager(distribId, packagesToCheck):
+    managers = {'path': InPathSubManager()}
+    name = 'unknown'
+    if distribId in ('Ubuntu', 'Debian', ):
+        name = 'dpkg'
+        managers[''] = DpkgManager()
+    elif distribId in ('Fedora', 'RedHat', ):
+        name = 'rpm'
+        managers[''] = RpmManager()
+    elif distribId in ('Windows',):
+        name = 'windows'
+        chocoPath = findInPATH("choco.exe")
+        if chocoPath:
+            managers['choco'] = ChocoManager(chocoPath)
+
+        if accendinoPlatform.msys2path:
+            managers['msys2'] = Msys2Manager(accendinoPlatform.msys2path)
+        packagesToCheck.append('path/powershell.exe')
+
+    elif distribId in ('Darwin',):
+        name = 'brew'
+        managers[''] = BrewManager()
+    elif distribId in ('FreeBSD',):
+        name = 'pkg'
+        managers[''] = PkgManager()
+    elif distribId in ('Arch',):
+        name = 'pacman'
+        managers[''] = PacmanManager()
+
+    return PackageManager(name, managers)

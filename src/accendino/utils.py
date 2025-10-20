@@ -190,6 +190,10 @@ class RunInShell:
         return self.items
 
 def findInPATH(name: str) -> str:
+    if accendinoPlatform.isWindows:
+        if not name.endswith(".exe"):
+            name += ".exe"
+
     for p in os.environ.get('PATH', '').split(os.pathsep):
         fpath = os.path.join(p, name)
         if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
@@ -212,3 +216,18 @@ def escapeForPowershell(s):
         return  "'" + ret + "'"
 
     return ret
+
+
+def envForDepotTools(env: T.Dict[str, str] = None):
+    ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between
+        python versions
+    '''
+    if env is None:
+        env = os.environ.copy()
+    else:
+        env = env.copy()
+
+    if 'PYTHONPATH' in env:
+        del env['PYTHONPATH']
+
+    return env
