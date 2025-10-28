@@ -64,7 +64,7 @@ if sdl2_fromSource:
         ),
 
         CMakeBuildArtifact('SDL2_image', ['SDL2'],
-            GitSource('https://github.com/libsdl-org/SDL_image.git', 'release-2.8.2', shallow_submodules=True, recurse_submodules=True),
+            GitSource('https://github.com/libsdl-org/SDL_image.git', 'release-2.8.x', shallow_submodules=True, recurse_submodules=True),
             ['-DSDL2IMAGE_SAMPLES=OFF', '-DSDL2IMAGE_DEPS_SHARED=OFF'],
             provides=['SDL2_image-artifact']
         )

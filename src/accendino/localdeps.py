@@ -120,7 +120,7 @@ class InPathSubManager(PackageManagerBase):
     def checkMissing(self, packages: T.List[str]) -> T.List[str]:
         ret = []
         for p in packages:
-            if not findInPATH(p):
+            if findInPATH(p) is None:
                 ret.append(p)
 
         return ret
@@ -154,8 +154,9 @@ class ChocoManager(PackageManagerBase):
     def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * {self.name}, installing missing packages: {' '.join(packages)}")
 
-        cmd = f"{self.chocoPath} install {' '.join(packages)}"
-        return os.system(cmd) == 0
+        cmd = [self.chocoPath, "install", "-y"] + packages
+        p = subprocess.run(cmd)
+        return p.returncode == 0
 
 
 class PacmanManager(PackageManagerBase):
