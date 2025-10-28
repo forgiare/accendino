@@ -5,6 +5,12 @@
 #
 #    Detecting or building ffmpeg
 #
+# tested options:
+#    ffmpeg.with_x264 : build with x264
+#    ffmpeg.with_openh264 : build with openh264
+#
+include('x264')
+include('openh264')
 
 ffmpeg_pkgDeps = {
     UBUNTU_LIKE: ['libavcodec-dev', 'libavfilter-dev', 'libavformat-dev', 'libavutil-dev', 'libswscale-dev',
@@ -18,19 +24,34 @@ if targetDistribId in ('mingw', 'Windows', 'Darwin',):
     ffmpeg_fromSources = True
 
 if ffmpeg_fromSources:
-    extraArgs = []
+    ffmpegExtraArgs = []
+    ffmpegDeps = []
+    skipToolchainEnv = False
+
+    if getOption('ffmpeg.with_x264', False):
+        ffmpegDeps.append('x264-static')
+        ffmpegExtraArgs.append('--enable-gpl')
+        ffmpegExtraArgs.append('--enable-libx264')
+
+    if getOption('ffmpeg.with_openh264', False):
+        ffmpegDeps.append('openh264')
+        ffmpegExtraArgs.append('--enable-libopenh264')
+
+
     if crossCompilation:
-        extraArgs.append('--enable-cross-compile')
+        ffmpegExtraArgs.append('--enable-cross-compile')
         if targetDistribId == 'mingw':
             flags = {
                 'i686': ['--arch=i686', '--target-os=mingw32', '--cross-prefix=i686-w64-mingw32-'],
                 'x86_64': ['--arch=x86_64', '--target-os=mingw64', '--cross-prefix=x86_64-w64-mingw32-']
             }
-            extraArgs += flags.get(targetArch, [])
-            extraArgs.append('--disable-mediafoundation')
+            ffmpegExtraArgs += flags.get(targetArch, [])
+            ffmpegExtraArgs.append('--disable-mediafoundation')
+            ffmpegExtraArgs.append('--pkg-config=pkg-config')
+            skipToolchainEnv = True
 
     if targetDistribId == 'Darwin':
-        extraArgs += ['--enable-shared', '--disable-static',
+        ffmpegExtraArgs += ['--enable-shared', '--disable-static',
             '--enable-swscale', '--disable-asm', '--disable-libxcb',
             '--disable-xlib', '--enable-avcodec',
         ]
@@ -45,21 +66,22 @@ if ffmpeg_fromSources:
     if distribId == 'Windows':
         builder = 'makeMsys2'
         configureCmd = '{srcdir_posix}/configure'
-        extraArgs += ['--toolchain=msvc']
+        ffmpegExtraArgs += ['--toolchain=msvc']
 
     for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
         ffmpegPkgs[f'{distrib}'] = ['nasm']
         ffmpegPkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
 
     ARTIFACTS += [
-        CustomCommandBuildArtifact('ffmpeg', [],
+        CustomCommandBuildArtifact('ffmpeg', ffmpegDeps,
             GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
             prepare_cmds=[
-                RunInShell([configureCmd, '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + extraArgs),
+                RunInShell([configureCmd, '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + ffmpegExtraArgs),
             ],
             pkgs=ffmpegPkgs,
             provides=['ffmpeg-artifact'],
-            builder=builder
+            builder=builder,
+            skipToolchainEnv=skipToolchainEnv
         ),
     ]
 

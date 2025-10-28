@@ -14,6 +14,16 @@ faac_pkgDeps = {
 faac_fromSources = targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',)
 
 if faac_fromSources:
+    faac_extraArgs = []
+    if crossCompilation:
+        if targetDistribId == 'mingw':
+            flags = {
+                'i686': ['--host=i686-w64-mingw32'],
+                'x86_64': ['--host=x86_64-w64-mingw32'],
+            }
+            faac_extraArgs += flags.get(targetArch, [])
+
+
     ARTIFACTS += [
        # TODO:
         #     undefine __SSE2__, symbol clashes with universal build
@@ -25,7 +35,7 @@ if faac_fromSources:
                 [NativePath('{srcdir}', 'bootstrap')]
             ],
             prepare_cmds=[
-                [NativePath('{srcdir}', 'configure'), '--enable-shared', '--disable-static', '--prefix={prefix}']
+                [NativePath('{srcdir}', 'configure'), '--enable-shared', '--disable-static', '--prefix={prefix}'] + faac_extraArgs
             ],
             provides=['faac-artifact'],
             pkgs={

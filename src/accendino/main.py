@@ -5,17 +5,19 @@ import os.path
 import platform
 import pathlib
 import typing as T
+import configparser
 from zenlog import log as logging
 
 import accendino
 
 from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuildArtifact, DepsBuildArtifact, \
     MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact
-from accendino.localdeps import BrewManager, DpkgManager, RpmManager, WindowsManager, PkgManager, PacmanManager
-from accendino.sources import GitSource
+from accendino.localdeps import getPkgManager
+from accendino.sources import LocalSource, GitSource, RemoteArchiveSource
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
-    NativePath, RunInShell
+    NativePath, RunInShell, mergePkgDeps
 from accendino.toolchain import getToolchain
+
 
 
 def doHelp(args, is_error) -> int:
@@ -28,6 +30,7 @@ def doHelp(args, is_error) -> int:
     print("\t--targets=<targets>: a list of comma separated targets to build (by default full-ogon-freerdp2)")
     print("\t--build-type=[release|debug]: type of build (defaults to release)")
     print("\t--work-dir=<path>: a path to the working directory where sources are checked out and built")
+    print("\t--options=<path>: a path to the build options file")
     if is_error:
         return 1
 
@@ -127,6 +130,7 @@ class AccendinoConfig:
         self.projectDir = None
         self.sourcesDir = None
         self.buildsDir = None
+        self.toolsDir = None
         self.targets = None
         self.buildDefs = []
         self.distribId = None
@@ -141,11 +145,14 @@ class AccendinoConfig:
         self.toolchainObj = None
 
         localMachine = platform.machine()
-        self.localArch = self.targetArch = ARCHS_MAP.get(localMachine, localMachine)
+        self.localArch = ARCHS_MAP.get(localMachine, localMachine)
+        self.targetArch = None
         self.targetDistrib = None
         self.pocketDir = pathlib.Path(__file__).parent / 'pocket'
         self.crossFileDir = pathlib.Path(__file__).parent / 'cross'
         self.getCrossPlatformFile = None
+        self.optionsFile = None
+        self.options = None
 
         #
         # populate a search path that has:
@@ -204,11 +211,37 @@ class AccendinoConfig:
         def checkAccendinoVersionFn(cond: str) -> bool:
             return checkAccendinoVersion(cond, accendino.__version__)
 
+        def getOption(optName: str, defaultVal=None):
+            if self.options is None:
+                return defaultVal
+
+            tokens = optName.split('.', 2)
+            if len(tokens) == 2:
+                (section, name) = tokens
+            else:
+                section = configparser.UNNAMED_SECTION
+                name = optName
+
+            if not section in self.options.sections():
+                return defaultVal
+
+            ret = self.options[section].get(name, defaultVal)
+            if ret in ('True', 'on',):
+                return True
+
+            if ret in ('False', 'off',):
+                return False
+
+            return ret
+
+
         self.sources = []
         self.context = {
             'ARTIFACTS': [],
             'DEFAULT_TARGETS': None,
+            'LocalSource': LocalSource,
             'GitSource': GitSource,
+            'RemoteArchiveSource': RemoteArchiveSource,
             'DepsBuildArtifact': DepsBuildArtifact,
             'CMakeBuildArtifact': CMakeBuildArtifact,
             'QMakeBuildArtifact': QMakeBuildArtifact,
@@ -217,9 +250,11 @@ class AccendinoConfig:
             'CustomCommandBuildArtifact': CustomCommandBuildArtifact,
             'BuildArtifact': BuildArtifact,
             'include': includeFn,
+            'getOption': getOption,
             'checkDistrib': checkDistrib,
             'pickDeps': pickDeps,
             'pickPkgDeps': pickPkgDeps,
+            'mergePkgDeps': mergePkgDeps,
             'logging': logging,
             'DepsAdjuster': DepsAdjuster,
             'NativePath': NativePath,
@@ -337,21 +372,7 @@ class AccendinoConfig:
         packagesToCheck = list(set(packagesToCheck))
         toolchainArtifacts = list(set(toolchainArtifacts))
 
-        pkgManager = None
-        if self.distribId in ('Ubuntu', 'Debian', ):
-            pkgManager = DpkgManager()
-        elif self.distribId in ('Fedora', 'RedHat', ):
-            pkgManager = RpmManager()
-        elif self.distribId in ('Windows',):
-            pkgManager = WindowsManager()
-            packagesToCheck.append('path/powershell.exe')
-        elif self.distribId in ('Darwin',):
-            pkgManager = BrewManager()
-        elif self.distribId in ('FreeBSD',):
-            pkgManager = PkgManager()
-        elif self.distribId in ('Arch',):
-            pkgManager = PacmanManager()
-
+        pkgManager = getPkgManager(self.distribId, packagesToCheck)
         if pkgManager:
             if not self.toolchainObj.packagesCheck(pkgManager, toolchainArtifacts, True):
                 logging.error(" * package requirements not met")
@@ -462,6 +483,7 @@ class AccendinoConfig:
         self.projectDir = pathlib.PurePath(self.workDir, self.projectName)
         self.sourcesDir = self.projectDir / 'sources'
         self.buildsDir = self.projectDir / 'build'
+        self.toolsDir = self.projectDir / 'tools'
 
         self.getCrossPlatformFile = self.context.get('CROSS_PLATFORM_FILE_CHOOSER', self.default_getCrossPlatformFile)
         return True
@@ -488,6 +510,70 @@ def createWorkTree(config) -> int:
 
     return 0
 
+_ARGS_CONTINUE, _ARGS_HELP, _ARGS_VERSION, _ARGS_ERROR = range(4)
+
+def treatArgOrOption(config, option, value, fromCmdLine) -> int:
+    if not fromCmdLine:
+        option = '--' + option
+
+    if option in ('-h', '--help',):
+        return _ARGS_HELP
+
+    if option in ('-v', '--version',):
+        print(accendino.__version__)
+        return _ARGS_VERSION
+
+    if option in ('--prefix',):
+        config.prefix = pathlib.PurePath(os.path.abspath(value))
+    elif option in ('-d', '--debug',):
+        logging.level('debug')
+        config.debug = True
+    elif option in ('--build-type',):
+        config.buildType = value
+        if config.buildType not in BUILD_TYPES:
+            print(f"invalid build type {config.buildType}")
+            return _ARGS_ERROR
+    elif option in ('--targets',):
+        config.targets = value.split(',')
+    elif option in ('--no-packages',):
+        config.checkPackages = False
+    elif option in ('--build-deps',):
+        config.doBuild = False
+    elif option in ('--work-dir', ):
+        config.workDir = pathlib.PurePath(os.path.abspath(value))
+    elif option in ("--resume-from", ):
+        config.resumeFrom = value
+    elif option in ('--options',):
+        if not fromCmdLine:
+            logging.error("options file can't be given in an options file")
+            return _ARGS_ERROR
+        config.optionsFile = value
+    elif option in ("--targetArch", ):
+        if not value in ARCHS:
+            logging.error(f'arch {value} not yet supported')
+            return _ARGS_ERROR
+        config.targetArch = value
+    elif option in ("--targetDistrib", ):
+        if value == 'mingw32':
+            config.targetDistrib = 'mingw'
+            config.targetArch = 'i686'
+            config.toolchain = 'mingw'
+        elif value == 'mingw64':
+            config.targetDistrib = 'mingw'
+            config.targetArch = 'x86_64'
+            config.toolchain = 'mingw'
+        else:
+            config.targetDistrib = value
+    elif option in ('--toolchain',):
+        config.toolchain = value
+    elif option in ("--project", ):
+        config.projectName = value
+    else:
+        logging.error(f"unknown option {value}")
+        return _ARGS_ERROR
+
+    return _ARGS_CONTINUE
+
 
 
 def run(args: T.List[str]) -> int:
@@ -497,61 +583,34 @@ def run(args: T.List[str]) -> int:
     config = AccendinoConfig()
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
-        "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=",
+        "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
         "version"
     ])
 
     for option, value in opts:
-        if option in ('-h', '--help',):
-            return doHelp(args[1:], False)
-
-        if option in ('-v', '--version',):
-            print(accendino.__version__)
+        argRes = treatArgOrOption(config, option, value, True)
+        if argRes in (_ARGS_ERROR, _ARGS_HELP,):
+            return doHelp(args[1:], argRes == _ARGS_ERROR)
+        if argRes == _ARGS_VERSION:
             return 0
 
-        if option in ('--prefix',):
-            config.prefix = pathlib.PurePath(value)
-        elif option in ('-d', '--debug',):
-            logging.level('debug')
-            config.debug = True
-        elif option in ('--build-type',):
-            config.buildType = value
-            if config.buildType not in BUILD_TYPES:
-                print(f"invalid build type {config.buildType}")
-                return doHelp(args, True)
-        elif option in ('--targets',):
-            config.targets = value.split(',')
-        elif option in ('--no-packages',):
-            config.checkPackages = False
-        elif option in ('--build-deps',):
-            config.doBuild = False
-        elif option in ('--work-dir', ):
-            config.workDir = pathlib.PurePath(value)
-        elif option in ("--resume-from", ):
-            config.resumeFrom = value
-        elif option in ("--targetArch", ):
-            if not value in ARCHS:
-                logging.error(f'arch {value} not yet supported')
-                return 1
-            config.targetArch = value
-        elif option in ("--targetDistrib", ):
-            if value == 'mingw32':
-                config.targetDistrib = 'mingw'
-                config.targetArch = 'i686'
-            elif value == 'mingw64':
-                config.targetDistrib = 'mingw'
-                config.targetArch = 'x86_64'
-            else:
-                config.targetDistrib = value
-        elif option in ('--toolchain',):
-            config.toolchain = value
-        elif option in ("--project", ):
-            config.projectName = value
-        else:
-            logging.error(f"unknown option {value}")
-
     logging.info("=== accendino ===")
+
+    if config.optionsFile:
+        logging.debug(f' * reading build options from {config.optionsFile}')
+        config.options = configparser.ConfigParser()
+        config.options.optionxform = str
+        config.options.read(config.optionsFile)
+
+        if 'accendino' in config.options.sections():
+            # inject key/values in the accendino section as command line args
+            for option, value in config.options['accendino'].items():
+                argRes = treatArgOrOption(config, option, value, False)
+                if argRes in (_ARGS_ERROR, _ARGS_HELP, _ARGS_VERSION):
+                    logging.error(f'invalid item {option}={value} in accendino section')
+                    return 1
+
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
@@ -560,6 +619,8 @@ def run(args: T.List[str]) -> int:
 
     (distribId, distribVersion) = detectPlatform()
 
+    if config.targetArch is None:
+        config.targetArch = config.localArch
 
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
@@ -622,6 +683,12 @@ def run(args: T.List[str]) -> int:
     if config.doBuild:
         for item in buildPlan:
             logging.info(f' * module {item.name}')
+
+            logging.debug('   ==> init')
+            if not item.init(config):
+                logging.error(f"error initializing {item.name}")
+                return 1
+
             logging.debug('   ==> checking out')
             if not item.checkout(config):
                 logging.error(f"checkout error for {item.name}")

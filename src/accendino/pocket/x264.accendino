@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building x264
+#
+
+x264_fromSources = False
+
+if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+    x264_fromSources = True
+
+if x264_fromSources:
+    x264_extraArgs = []
+    if crossCompilation:
+        if targetDistribId == 'mingw':
+            flags = {
+                'i686': ['--host=i686-w64-mingw32', '--cross-prefix=i686-w64-mingw32-'],
+                'x86_64': ['--host=x86_64-w64-mingw32', '--cross-prefix=x86_64-w64-mingw32-']
+            }
+            x264_extraArgs += flags.get(targetArch, [])
+
+    x264Pkgs = {
+        'Darwin': ['nasm'],
+        'Windows': ['choco/nasm|path/nasm', 'msys2/make', 'msys2/yasm', 'msys2/diffutils'],
+    }
+
+    builder = 'make'
+    configureCmd = NativePath('{srcdir}', 'configure')
+    if distribId == 'Windows':
+        builder = 'makeMsys2'
+        configureCmd = '{srcdir_posix}/configure'
+
+    for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
+        x264Pkgs[f'{distrib}'] = ['nasm']
+        x264Pkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
+
+    for mod in ('static', 'shared',):
+        ARTIFACTS += [
+            CustomCommandBuildArtifact(f'x264-{mod}', [],
+                GitSource('https://code.videolan.org/videolan/x264.git', 'stable'),
+                prepare_cmds=[
+                    RunInShell([configureCmd, '--prefix={prefix}'] + x264_extraArgs),
+                ],
+                install_target=f'install-lib-{mod}',
+                pkgs=x264Pkgs,
+                provides=[f'x264-{mod}-artifact'],
+                builder=builder,
+                skipToolchainEnv=crossCompilation
+            ),
+        ]
+
+else:
+    x264_pkgDeps = {
+        UBUNTU_LIKE: ['libx264-dev'],
+        REDHAT_LIKE: ['x264-devel'],
+        'FreeBSD': ['libx264'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('x264-artifact', [], pkgs=x264_pkgDeps)
+    ]

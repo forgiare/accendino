@@ -44,7 +44,7 @@ class BuildStepDump:
             if isinstance(cmds2, RunInShell):
                 cmds1 = cmds1.expand()
 
-            if len(cmds2) != len(cmds2):
+            if len(cmds1) != len(cmds2):
                 return False
 
             j = 0
@@ -91,6 +91,9 @@ class DepsBuildArtifact:
         else:
             self.toolchainArtifacts = toolchainArtifacts
 
+    def init(self, _config) -> bool:
+        return True
+
     def checkout(self, _config) -> bool:
         return True
 
@@ -110,7 +113,7 @@ class BuildArtifact(DepsBuildArtifact):
     ''' general build artifact '''
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[],
-                 toolchainArtifacts='c') -> None:
+                 toolchainArtifacts='c', skipToolchainEnv=False) -> None:
         '''
             'commands list' are list of tuple(command, running_directory, command_description).
                 * command is the list passed to subprocess.execute().
@@ -127,6 +130,7 @@ class BuildArtifact(DepsBuildArtifact):
             @param prepare_cmds: a command list of commands to run to prepare the build tree.
             @param build_cmds: a command list of commands to run to do the build and install
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param skipToolchainEnv: do not grab env variable from the toolchain
         '''
         if srcObj:
             pkgs = mergePkgDeps(pkgs, srcObj.pkgDeps)
@@ -141,6 +145,7 @@ class BuildArtifact(DepsBuildArtifact):
         self.build_cmds = build_cmds[:]
         self.parallelJobs = True
         self.needsMsys2 = False
+        self.skipToolchainEnv = skipToolchainEnv
 
     def _updatePATHlike(self, config, env: T.Dict[str, str], key: str, preExtra: T.List[str] = [],
                         postExtra: T.List[str] = [], sep: str = ':') -> None:
@@ -194,10 +199,11 @@ class BuildArtifact(DepsBuildArtifact):
             self._updatePATHlike(config, r, 'PATH', [pathlib.PurePath(config.prefix, 'bin')], sep=os.pathsep)
             xkeys.append('PATH')
 
-        toolchainEnv = config.toolchainObj.extraEnv(self.toolchainArtifacts)
-        if toolchainEnv:
-            xkeys += toolchainEnv.keys()
-            r.update(toolchainEnv)
+        if not self.skipToolchainEnv:
+            toolchainEnv = config.toolchainObj.extraEnv(self.toolchainArtifacts)
+            if toolchainEnv:
+                xkeys += toolchainEnv.keys()
+                r.update(toolchainEnv)
 
         if createEnvFile:
             fileDumper = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
@@ -221,13 +227,13 @@ class BuildArtifact(DepsBuildArtifact):
         return item.format(**values)
 
     def _expandConfigForPath(self, item: str, _config):
-        knownPaths = {
-            '{srcdir}': self.sourceDir,
-            '{srcdir_posix}': self.sourceDir.as_posix(),
-            '{builddir}': self.buildDir,
-            '{builddir_posix}': self.buildDir.as_posix(),
+        values = {
+            'srcdir': self.sourceDir,
+            'srcdir_posix': self.sourceDir.as_posix(),
+            'builddir': self.buildDir,
+            'builddir_posix': self.buildDir.as_posix(),
         }
-        return knownPaths.get(item, item)
+        return item.format(**values)
 
     def _expandConfigInlist(self, l: T.List[str], config) -> T.List[str]:
         ret = []
@@ -236,7 +242,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         return ret
 
-    def checkout(self, config) -> bool:
+    def init(self, config) -> bool:
         self.sourceDir = config.sourcesDir / self.name
 
         dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{config.buildType}"
@@ -247,7 +253,9 @@ class BuildArtifact(DepsBuildArtifact):
         self.logFile = self.buildDir / 'build.log'
         self.prepareStateFile = self.buildDir / PREPARE_DUMP_FILE
         self.builtFile = self.buildDir / BUILT_FILE
+        return True
 
+    def checkout(self, _config) -> bool:
         with open(self.logFile, "at", encoding='utf8') as flog:
             return self.srcObj.checkout(self.sourceDir, flog)
 
@@ -456,6 +464,10 @@ class BuildArtifact(DepsBuildArtifact):
     def setMakeNinjaCommands(self, config, cmd='ninja', build_target='all', install_target='install', parallelJobs=True,
                             runInstallDir='{builddir}') -> None:
         ''' configure build commands base on make or ninja '''
+
+        buildCmd = None
+        installCmd = None
+
         if cmd in ('ninja', 'make', 'makeMsys2',):
             maxJobs = 0
             if parallelJobs:
@@ -467,27 +479,34 @@ class BuildArtifact(DepsBuildArtifact):
                 concurrentArgs = f'-j{maxJobs}'
 
             if cmd == 'makeMsys2':
-                self.build_cmds = [
-                    (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, build_target]).expand(), '{builddir_posix}', 'building'),
-                    (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, install_target]).expand(), '{builddir_posix}', 'installing'),
-                ]
+                buildCmd = (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, build_target]).expand(),
+                            '{builddir_posix}', 'building')
+                if install_target:
+                    installCmd = (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, install_target]).expand(),
+                                  '{builddir_posix}', 'installing')
+
             else:
-                self.build_cmds = [
-                    ([cmd, '-C', '{builddir}', concurrentArgs, build_target], '{builddir}', 'building'),
-                    ([cmd, '-C', runInstallDir, concurrentArgs, install_target], '{builddir}', 'installing'),
-                ]
+                buildCmd = ([cmd, '-C', '{builddir}', concurrentArgs, build_target], '{builddir}', 'building')
+                if install_target:
+                    installCmd = ([cmd, '-C', runInstallDir, concurrentArgs, install_target], '{builddir}', 'installing')
+
         elif cmd in ('nmake',):
-            self.build_cmds = [
-                ([cmd, build_target], '{builddir}', 'building'),
-                ([cmd, install_target], '{builddir}', 'installing'),
-            ]
+            if build_target:
+                buildCmd = ([cmd, build_target], '{builddir}', 'building')
+            if install_target:
+                installCmd = ([cmd, install_target], '{builddir}', 'installing')
+
+        if buildCmd:
+            self.build_cmds.append(buildCmd)
+        if installCmd:
+            self.build_cmds.append(installCmd)
 
 
 class CustomCommandBuildArtifact(BuildArtifact):
     ''' an artifact that is configured with a special command '''
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides: T.List[str] = [], pkgs={}, prepare_src_cmds=[], prepare_cmds=[],
-                 builder='make', build_target='all', install_target='install', toolchainArtifacts='c') -> None:
+                 builder='make', build_target='all', install_target='install', toolchainArtifacts='c', skipToolchainEnv=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -501,9 +520,10 @@ class CustomCommandBuildArtifact(BuildArtifact):
             @param build_target: target to build
             @param install_target: install to build
             @param toolchainArtifacts: artifacts that we need from the toolchain
-
+            @param skipToolchainEnv: do not grab env variable from the toolchain
         '''
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv=extraEnv, provides=provides, pkgs=pkgs, toolchainArtifacts=toolchainArtifacts)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv=extraEnv, provides=provides, pkgs=pkgs,
+                               toolchainArtifacts=toolchainArtifacts, skipToolchainEnv=skipToolchainEnv)
 
         self.builder = builder
         self.build_target = build_target
@@ -749,8 +769,16 @@ class MesonBuildArtifact(BuildArtifact):
             (cmd, '{builddir}', 'running meson configure')
         ]
 
+        maxJobs = 0
+        if self.parallelJobs:
+            maxJobs = config.maxJobs
+
+        concurrentArgs = []
+        if maxJobs != 0:
+            concurrentArgs = ['-j', f'{maxJobs}']
+
         self.build_cmds = [
-            (['meson', 'compile'], '{builddir}', 'building'),
+            (['meson', 'compile'] + concurrentArgs, '{builddir}', 'building'),
             (['meson', 'install'], '{builddir}', 'installing'),
         ]
 

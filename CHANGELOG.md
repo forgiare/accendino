@@ -1,6 +1,6 @@
 # _Accendino_ changelog
 
-## 0.5.10
+## 0.5.10 alpha 1
 
 * updated accendino files for FreeBSD packages
 * rebuild an artifact when one of its dependency has been rebuilt more recently
@@ -13,9 +13,16 @@
   ffmpeg under windows with MSVC (run configure script under msys2)
 * adds a `RunInShell` special class that allows to specify some commands that must be run in a shell, so either the default
 shell on unixes or msys2 on Windows
-* added accendino files for `cairo`, `cjson`, `qfreerdp_platform`
+* added accendino files for `cairo`, `cjson`, `qfreerdp_platform`, `x264`
 * the windows build system has been reworked to generate and use powershell script, that allows to pass env variables from VS devEnv scripts
 * various fixes in windows packages manager (choco and inPath)
+* MinGw is now a toolchain
+* added build options support via a ini file that specifies build options
+* make `MesonBuildArtifact` respect the parallel job parameter
+* fixed `LocalSource` when using symbolic links
+* fixed a bug in prepared file comparison
+* added `RemoteArchiveSource` to grab code from a zip or 7z remote file
+* expose `mergePkgDeps` to accendino files
 
 
 
