@@ -6,7 +6,7 @@ import typing as T
 
 from zenlog import log as logging
 from accendino.sources import Source
-from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell
+from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell, as_msys2_path
 
 
 class BuildStepDump:
@@ -219,6 +219,7 @@ class BuildArtifact(DepsBuildArtifact):
             'libdir': config.libdir,
             'prefix': config.prefix,
             'prefix_posix': config.prefix.as_posix(),
+            'prefix_msys2': as_msys2_path(config.prefix),
             'srcdir': self.sourceDir,
             'srcdir_posix': self.sourceDir.as_posix(),
             'builddir': self.buildDir,
@@ -333,7 +334,7 @@ class BuildArtifact(DepsBuildArtifact):
 
                 cmd = self._expandConfigInlist(cmd, config)
                 cmdStr = "' '".join(cmd)
-                f.write(f"& '{cmdStr}'\n\n")
+                f.write(f"& '{cmdStr}'\nif ($LastExitCode -ne 0) {{\n\tExit $LastExitCode\n}}\n")
 
                 lastDir = path
 
@@ -438,7 +439,7 @@ class BuildArtifact(DepsBuildArtifact):
 
                 cmd = self._expandConfigInlist(cmd, config)
                 cmdStr = "' '".join(cmd)
-                f.write(f"& '{cmdStr}'\n\n")
+                f.write(f"& '{cmdStr}'\nif ($LastExitCode -ne 0) {{\n\tExit $LastExitCode\n}}\n")
 
             return True
 
@@ -461,12 +462,17 @@ class BuildArtifact(DepsBuildArtifact):
         return self.runCommands(self.build_cmds, env, config) and self.createBuiltFile()
 
 
-    def setMakeNinjaCommands(self, config, cmd='ninja', build_target='all', install_target='install', parallelJobs=True,
+    def setMakeNinjaCommands(self, config, cmd='ninja', build_targets='all', install_targets='install', parallelJobs=True,
                             runInstallDir='{builddir}') -> None:
         ''' configure build commands base on make or ninja '''
 
-        buildCmd = None
-        installCmd = None
+        if build_targets:
+            if isinstance(build_targets, str):
+                build_targets = build_targets.split(',')
+
+        if install_targets:
+            if isinstance(install_targets, str):
+                install_targets = install_targets.split(',')
 
         if cmd in ('ninja', 'make', 'makeMsys2',):
             maxJobs = 0
@@ -479,27 +485,27 @@ class BuildArtifact(DepsBuildArtifact):
                 concurrentArgs = f'-j{maxJobs}'
 
             if cmd == 'makeMsys2':
-                buildCmd = (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, build_target]).expand(),
-                            '{builddir_posix}', 'building')
-                if install_target:
-                    installCmd = (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, install_target]).expand(),
-                                  '{builddir_posix}', 'installing')
+                for target in build_targets:
+                    self.build_cmds.append( (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, target]).expand(),
+                            '{builddir_posix}', 'building'))
+
+                for target in install_targets:
+                    self.build_cmds.append( (RunInShell(['make', '-C', '{builddir_posix}', concurrentArgs, target]).expand(),
+                                  '{builddir_posix}', 'installing'))
 
             else:
-                buildCmd = ([cmd, '-C', '{builddir}', concurrentArgs, build_target], '{builddir}', 'building')
-                if install_target:
-                    installCmd = ([cmd, '-C', runInstallDir, concurrentArgs, install_target], '{builddir}', 'installing')
+                for target in build_targets:
+                    self.build_cmds.append( ([cmd, '-C', '{builddir}', concurrentArgs, target], '{builddir}', 'building'))
+
+                for target in install_targets:
+                    self.build_cmds.append(([cmd, '-C', runInstallDir, concurrentArgs, target], '{builddir}', 'installing'))
 
         elif cmd in ('nmake',):
-            if build_target:
-                buildCmd = ([cmd, build_target], '{builddir}', 'building')
-            if install_target:
-                installCmd = ([cmd, install_target], '{builddir}', 'installing')
+            for target in build_targets:
+                self.build_cmds.append( ([cmd, target], '{builddir}', 'building'))
 
-        if buildCmd:
-            self.build_cmds.append(buildCmd)
-        if installCmd:
-            self.build_cmds.append(installCmd)
+            for target in install_targets:
+                self.build_cmds.append( ([cmd, target], '{builddir}', 'installing') )
 
 
 class CustomCommandBuildArtifact(BuildArtifact):
@@ -547,8 +553,8 @@ class CustomCommandBuildArtifact(BuildArtifact):
 
 
     def prepare(self, config) -> bool:
-        self.setMakeNinjaCommands(config, self.builder, parallelJobs=self.parallelJobs, build_target=self.build_target,
-                                  install_target=self.install_target)
+        self.setMakeNinjaCommands(config, self.builder, parallelJobs=self.parallelJobs, build_targets=self.build_target,
+                                  install_targets=self.install_target)
         return BuildArtifact.prepare(self, config)
 
 

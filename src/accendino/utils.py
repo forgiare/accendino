@@ -217,6 +217,13 @@ def escapeForPowershell(s):
 
     return ret
 
+def as_msys2_path(p) -> str:
+    if p.drive:
+        l = [ p.drive[:-1].lower() ] + list( p.parts[1:] )
+        return '/' + '/'.join(l)
+
+    return p.as_posix()
+
 
 def envForDepotTools(env: T.Dict[str, str] = None):
     ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between

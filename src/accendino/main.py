@@ -122,11 +122,11 @@ class AccendinoConfig:
 
     def __init__(self) -> None:
         ''' '''
-        self.prefix = pathlib.PurePath('/', 'opt', 'ogon')
         self.debug = False
         self.buildType = 'release'
         self.projectName = None
         self.workDir = pathlib.PurePath(os.getcwd())
+        self.prefix = self.workDir / 'deploy'
         self.projectDir = None
         self.sourcesDir = None
         self.buildsDir = None
@@ -226,11 +226,12 @@ class AccendinoConfig:
                 return defaultVal
 
             ret = self.options[section].get(name, defaultVal)
-            if ret in ('True', 'on',):
-                return True
+            if isinstance(ret, str):
+                if ret.lower() in ('true', 'on',):
+                    return True
 
-            if ret in ('False', 'off',):
-                return False
+                if ret.lower() in ('false', 'off',):
+                    return False
 
             return ret
 
