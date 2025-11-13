@@ -11,7 +11,7 @@ faad2_pkgDeps = {
     'FreeBSD': ['faad2'],
 }
 
-faad2_fromSources = targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',)
+faad2_fromSources = getOption('faad2.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',))
 
 if faad2_fromSources:
     ARTIFACTS += [

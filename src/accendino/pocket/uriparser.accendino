@@ -6,7 +6,7 @@
 #    Detecting or building uriparser
 #
 
-uriparser_fromSources = False
+uriparser_fromSources = getOption('uriparser.fromSources', False)
 uriparser_pkgDeps = {
     UBUNTU_LIKE: ['liburiparser-dev'],
     REDHAT_LIKE: ['uriparser-devel'],

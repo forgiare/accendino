@@ -11,7 +11,7 @@ cjson_pkgDeps = {
     REDHAT_LIKE: ['cjson-devel'],
     'FreeBSD': ['libcjson'],
 }
-cjson_fromSources = False
+cjson_fromSources = getOption('cjson.fromSources', False)
 
 if targetDistribId in ('mingw', 'Windows', 'Darwin',):
     cjson_fromSources = True

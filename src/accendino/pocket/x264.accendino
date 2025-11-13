@@ -6,7 +6,7 @@
 #    Detecting or building x264
 #
 
-x264_fromSources = False
+x264_fromSources = getOption('x264.fromSources', False)
 
 if targetDistribId in ('mingw', 'Windows', 'Darwin',):
     x264_fromSources = True

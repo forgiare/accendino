@@ -11,7 +11,7 @@ cairo_pkgDeps = {
     REDHAT_LIKE: ['cairo-devel'],
 }
 
-cairo_fromSources = False
+cairo_fromSources = getOption('cairo.fromSources', False)
 
 if targetDistribId == 'mingw':
     if checkDistrib('>= Fedora 40'):
@@ -29,7 +29,7 @@ if cairo_fromSources:
     ARTIFACTS += [
         MesonBuildArtifact('cairo', ['zlib-artifact'],
             GitSource('https://gitlab.freedesktop.org/cairo/cairo.git', '1.18.4'),
-            mesonOpts=[],
+            mesonOpts=['-Dtests=disabled'],
             provides=['cairo-artifact']
         ),
     ]

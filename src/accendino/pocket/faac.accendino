@@ -11,7 +11,7 @@ faac_pkgDeps = {
     'FreeBSD': ['faac'],
 }
 
-faac_fromSources = targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',)
+faac_fromSources = getOption('faac.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'FreeBSD',))
 
 if faac_fromSources:
     faac_extraArgs = []

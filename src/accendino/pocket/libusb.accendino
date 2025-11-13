@@ -11,7 +11,7 @@ libusb_pkgDeps = {
     REDHAT_LIKE: ['libusb1-devel'],
 }
 
-libusb_fromSources = False
+libusb_fromSources = getOption('libusb.fromSources', False)
 
 if targetDistribId == 'mingw':
     if checkDistrib('>= Fedora 40'):

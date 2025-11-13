@@ -11,7 +11,7 @@ zlib_pkgDeps = {
     REDHAT_LIKE: ['zlib-ng-devel'],
 }
 
-zlib_fromSources = False
+zlib_fromSources = getOption('zlib.fromSources', False)
 
 if targetDistribId == 'mingw':
     # Checks for some existing distribution packets

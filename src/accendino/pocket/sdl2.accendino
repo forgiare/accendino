@@ -23,10 +23,10 @@ sdl2_ttf_pkgDeps = {
     'FreeBSD': ['sdl2_ttf'],
 }
 
-sdl2_fromSource = True
+sdl2_fromSource = getOption('sdl2.fromSource', False)
 
-if targetDistribId in ('Ubuntu', 'Debian', 'Redhat', 'Fedora', 'FreeBSD',):
-    sdl2_fromSource = False
+if targetDistribId not in ('Ubuntu', 'Debian', 'Redhat', 'Fedora', 'FreeBSD',):
+    sdl2_fromSource = True
 
 elif targetDistribId == 'mingw':
     # Checks for some existing distribution packets

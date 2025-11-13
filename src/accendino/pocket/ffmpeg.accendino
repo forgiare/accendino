@@ -29,7 +29,7 @@ if ffmpeg_fromSources:
     skipToolchainEnv = False
 
     if getOption('ffmpeg.with_x264', False):
-        ffmpegDeps.append('x264-shared')
+        ffmpegDeps.append('x264-static')
         ffmpegExtraArgs.append('--enable-gpl')
         ffmpegExtraArgs.append('--enable-libx264')
 
