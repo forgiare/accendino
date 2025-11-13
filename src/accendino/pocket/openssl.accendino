@@ -6,7 +6,7 @@
 #    Detecting or building openssl
 #
 
-openssl_fromSources = False
+openssl_fromSources = getOption('openssl.fromSources', False)
 openssl_pkgDeps={
     UBUNTU_LIKE: ['libssl-dev'],
     REDHAT_LIKE: ['openssl-devel'],

@@ -90,6 +90,9 @@ Some examples:
     than can be `=`, `==`, `!`, `!=`, `<`, `<=`, `>` or `>=`. And `version` is the version string with 3 digits. For example: `cond='>= 0.5.1'`
 * `checkDistrib(cond : str) -> bool`: checks if the current distribution matches the [platform version condition](#platform-version-condition)
     given in `cond`
+* `̀getOption(opt: str, defaultValue) -> bool|str`: look for a build option in the build option file. The format for `opt` is `<section>.<variable>` so for instance
+  `ffmpeg.fromSources` will look in the `ffmpeg` section of the INI file and will look for the `fromSources` variable. If the variable or the section are missing the
+  default value is returned
 * `include(name : str, include_once: bool = True) -> bool`: allows to include another _Accendino_ source file. _Accendino_ will search for this file in the following
     locations: `.`, `pocket`, paths given in the `ACCENDINO_PATH` env variable, and finally in the pockets directory of _Accendino_. If `include_once` is set to `True`
     the file is just included once
@@ -127,6 +130,7 @@ Some examples:
 
 * `GitSource(url: str, branch: str, depth: int = 1, shallow_submodules: bool = False, recurse_submodules: bool = False)` : a source that checks out the code from `git`. Parameters mimick the `git` command line arguments;
 * `LocalSource(srcdir : str, do_symlink : bool = False)` : a source that uses code stored in a local directory. If `do_symlink` is true, the code is just symlinked in the _Accendino_ sources directory, otherwise the whole source tree is copied
+* `RemoteArchiveSource(url: str, saveAs: str = None, compression_method: str = 'guess')`: sources contained in a remote archive. The archive will be downloaded and then decompressed
 
 ### Platform packages dependencies
 Platform packages dependencies are expressed as a `dict` with the key that is the target distribution. It takes in account
