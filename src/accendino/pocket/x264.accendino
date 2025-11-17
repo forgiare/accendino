@@ -6,7 +6,7 @@
 #    Detecting or building x264
 #
 
-x264_fromSources = False
+x264_fromSources = getOption('x264.fromSources', False)
 
 if targetDistribId in ('mingw', 'Windows', 'Darwin',):
     x264_fromSources = True
@@ -26,27 +26,33 @@ if x264_fromSources:
         'Windows': ['choco/nasm|path/nasm', 'msys2/make', 'msys2/yasm', 'msys2/diffutils'],
     }
 
-    builder = 'make'
-    configureCmd = NativePath('{srcdir}', 'configure')
-    if distribId == 'Windows':
-        builder = 'makeMsys2'
-        configureCmd = '{srcdir_posix}/configure'
-
     for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
         x264Pkgs[f'{distrib}'] = ['nasm']
         x264Pkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
+
+
+    builder = 'make'
+    configureCmd = NativePath('{srcdir}', 'configure')
+    x264PrefixArg = '--prefix={prefix_posix}'
+    extraEnv = {}
+    if distribId == 'Windows':
+        builder = 'makeMsys2'
+        configureCmd = '{srcdir_posix}/configure'
+        x264PrefixArg = '--prefix={prefix_msys2}'
+        extraEnv['CC'] = 'cl.exe'
 
     for mod in ('static', 'shared',):
         ARTIFACTS += [
             CustomCommandBuildArtifact(f'x264-{mod}', [],
                 GitSource('https://code.videolan.org/videolan/x264.git', 'stable'),
                 prepare_cmds=[
-                    RunInShell([configureCmd, '--prefix={prefix}'] + x264_extraArgs),
+                    RunInShell([configureCmd, x264PrefixArg] + x264_extraArgs),
                 ],
-                install_target=f'install-lib-{mod}',
+                install_target=f'install-lib-{mod},install-lib-dev',
                 pkgs=x264Pkgs,
                 provides=[f'x264-{mod}-artifact'],
                 builder=builder,
+                extraEnv=extraEnv,
                 skipToolchainEnv=crossCompilation
             ),
         ]

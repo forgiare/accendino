@@ -48,10 +48,12 @@ if ffmpeg_fromSources:
             ffmpegExtraArgs += flags.get(targetArch, [])
             ffmpegExtraArgs.append('--disable-mediafoundation')
             ffmpegExtraArgs.append('--pkg-config=pkg-config')
+            ffmpegExtraArgs.append('--enable-static')
+            ffmpegExtraArgs.append('--enable-shared')
             skipToolchainEnv = True
 
     if targetDistribId == 'Darwin':
-        ffmpegExtraArgs += ['--enable-shared', '--disable-static',
+        ffmpegExtraArgs += ['--enable-shared', '--enable-static',
             '--enable-swscale', '--disable-asm', '--disable-libxcb',
             '--disable-xlib', '--enable-avcodec',
         ]
@@ -60,23 +62,23 @@ if ffmpeg_fromSources:
         'Darwin': ['nasm'],
         'Windows': ['choco/nasm|path/nasm', 'msys2/make', 'msys2/yasm', 'msys2/diffutils'],
     }
+    for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
+        ffmpegPkgs[f'{distrib}'] = ['nasm']
+        ffmpegPkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
 
     builder = 'make'
     configureCmd = NativePath('{srcdir}', 'configure')
     if distribId == 'Windows':
         builder = 'makeMsys2'
         configureCmd = '{srcdir_posix}/configure'
-        ffmpegExtraArgs += ['--toolchain=msvc']
+        ffmpegExtraArgs += ['--toolchain=msvc', '--env=PKG_CONFIG_PATH={prefix_msys2}/{libdir}/pkgconfig']
 
-    for distrib in ('Ubuntu', 'Debian', 'Redhat', 'Fedora',):
-        ffmpegPkgs[f'{distrib}'] = ['nasm']
-        ffmpegPkgs[f'{distrib}->mingw@x86_64'] = ['nasm']
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', ffmpegDeps,
             GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
             prepare_cmds=[
-                RunInShell([configureCmd, '--prefix={prefix}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + ffmpegExtraArgs),
+                RunInShell([configureCmd, '--prefix={prefix_msys2}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + ffmpegExtraArgs),
             ],
             pkgs=ffmpegPkgs,
             provides=['ffmpeg-artifact'],

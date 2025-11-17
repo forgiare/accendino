@@ -14,7 +14,7 @@ openh264_pkgDeps = {
     'FreeBSD': ['openh264'],
 
 }
-openh264_fromSources = False
+openh264_fromSources = getOption('openh264.fromSources', False)
 
 if targetDistribId in ('mingw', 'Windows', 'Darwin',):
     openh264_fromSources = True

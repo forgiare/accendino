@@ -1,2 +1,2 @@
 # Package
-__version__ = '0.5.10a2'
+__version__ = '0.5.10a3'

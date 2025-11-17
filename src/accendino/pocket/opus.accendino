@@ -12,7 +12,7 @@ opus_pkgDeps = {
     'FreeBSD': ['opus-tools'],
 }
 
-opus_fromSources = False
+opus_fromSources = getOption('opus.fromSources', False)
 
 if targetDistribId == 'mingw':
     # Checks for some existing distribution packets
