@@ -26,19 +26,43 @@ Here's the steps performed by _Accendino_ when building:
 
 1. first we determine the platform on which we're running, that gives us which package manager is in use
     on this platform
-2. the _Accendino_ source file is read, possibly reading the included files
-3. the targets to build are determined either by what's provided on the command line or with `DEFAULT_TARGETS` given
+2. we determine the toolchain to use
+3. the build option file is read
+4. the _Accendino_ source file is read, possibly reading the included files
+5. the targets to build are determined either by what's provided on the command line or with `DEFAULT_TARGETS` given
     in the _Accendino_ source file
-4. _Accendino_ creates a build plan, that's a sequence of artifacts to build
-5. given the build plan _Accendino_ checks which platform packages are needed and try to install the ones which are missing
-6. then it's the build step: for each artifact of the build plan, _Accendino_ will
+6. _Accendino_ creates a build plan, that's a sequence of artifacts to build
+7. given the build plan _Accendino_ checks which platform packages are needed and try to install the ones which are missing
+8. then it's the build step: for each artifact of the build plan, _Accendino_ will
     * checkout the source code of the build artifact
     * run commands to prepare the source directory
     * run commands to prepare the build directory
     * build
     * install
 
-If a `--resume` argument is given we start the build plan from that build artifact.
+If a `--resume` argument is given we start the build plan from the provided build artifact.
+
+## Build options files
+A build options file is an ini file containing options for the build, the `accendino` section of the file is
+injected to the command line parser of _Accendino_, that means that options that you may provide on the command
+line can also be passed via this build options file.
+
+Otherwise the conventions in _Accendino_ files are:
+
+* to have a section per built item and provide options there;
+* the `fromSources` options forces this artifact to be built from sources instead of using platform packages;
+
+For instance with this file:
+```ini
+[libusb]
+fromSources=on
+
+[ffmpeg]
+fromSources=on
+with_x264=on
+```
+
+`libusb` and `ffmpeg` will be built from sources. And we require to have the support of `x264` in ffmpeg.
 
 
 ## Custom source file
@@ -60,10 +84,12 @@ When interpreting the source file _Accendino_ provides some useful variables and
 ### Variables
 
 * `accendinoVersion : str`: the version of _Accendino_
+* `buildType : str`: the kind of build usually contains `debug` or `release`
 * `distribId : str`: the local distribution id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` (for MacOsX)
 * `distribVersion : str`: the version associated with the distribution in `distribId`
 * `targetArch : str`: the destination architecture `x86_64`, `i686`, ...
 * `targetDistribId : str`: the destination target id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` or `mingw`
+* `toolchain : str`: name of the toolchain
 * `crossCompilation : bool`: tells if the build is any kind of cross compilation
 * `libdir : str`: the library directory to use for this distribution (typically `lib` or `lib64`)
 * `UBUNTU_LIKE  : str`: contains `Debian|Ubuntu` a shortcut for dpkg based distributions
@@ -183,6 +209,7 @@ When giving commands, you can use these format string they will be replaced by t
 
 * `prefix`: the `--prefix` argument given to _Accendino_ in native form (with `/` under posix and `\` under windows)
 * `prefix_posix`: the `--prefix` argument given to _Accendino_ in posix form (with `/` in the path)
+* `prefix_msys2`: the `--prefix` argument given to _Accendino_ as a msys2 path form (so `c:\\toto` will become `/c/toto`)
 * `libdir`: where libraries are usually built and installed (`lib` on most places, `lib64` on redhat like systems)
 * `srcdir`: the source directory of this artifact in native form (with `/` under posix and `\` under windows).
     Useful to run commands in the source tree (for projects that needs `autogen.sh` / `bootstrap`)
