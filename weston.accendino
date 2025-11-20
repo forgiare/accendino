@@ -25,7 +25,8 @@ ARTIFACTS += [
         }
     ),
 
-    MesonBuildArtifact('weston', ['wayland', 'wayland-protocols', 'libseatd', 'colord', 'freerdp3'],
+    # colord disabled for now
+    MesonBuildArtifact('weston', ['wayland', 'wayland-protocols', 'libseatd', 'freerdp3', 'wayland-utils'],
         GitSource('https://gitlab.freedesktop.org/wayland/weston.git', 'master'),
         mesonOpts=['-Dbackend-rdp=true',
                    '-Dremoting=false',
