@@ -227,10 +227,10 @@ class AccendinoConfig:
 
             ret = self.options[section].get(name, defaultVal)
             if isinstance(ret, str):
-                if ret.lower() in ('true', 'on',):
+                if ret.lower() in ('true', 'on', 'yes',):
                     return True
 
-                if ret.lower() in ('false', 'off',):
+                if ret.lower() in ('false', 'off', 'no',):
                     return False
 
             return ret
@@ -335,13 +335,15 @@ class AccendinoConfig:
             'targetArch': self.targetArch,
             'targetDistribId': self.targetDistrib,
             'crossCompilation': self.crossCompilation,
+            'buildType': self.buildType,
+            'toolchain': self.toolchain,
             'libdir': self.libdir,
         }
 
         self.context.update(extraKeys)
 
 
-    def treatPlatformPackages(self, buildItems) -> None:
+    def treatPlatformPackages(self, pkgManager, packagesToCheck, buildItems) -> None:
         ''' '''
         # let's compute platform package requirements
         shortName = f"{self.distribId}"
@@ -351,7 +353,6 @@ class AccendinoConfig:
             shortName += f'->{self.targetDistrib}@{self.targetArch}'
             longName += f'->{self.targetDistrib}@{self.targetArch}'
 
-        packagesToCheck = []
         toolchainArtifacts = []
         for item in buildItems:
             if isinstance(item, str):
@@ -373,7 +374,6 @@ class AccendinoConfig:
         packagesToCheck = list(set(packagesToCheck))
         toolchainArtifacts = list(set(toolchainArtifacts))
 
-        pkgManager = getPkgManager(self.distribId, packagesToCheck)
         if pkgManager:
             if not self.toolchainObj.packagesCheck(pkgManager, toolchainArtifacts, True):
                 logging.error(" * package requirements not met")
@@ -623,6 +623,12 @@ def run(args: T.List[str]) -> int:
     if config.targetArch is None:
         config.targetArch = config.localArch
 
+    # grab a toolchain
+    config.toolchainObj = getToolchain(config.toolchain, config)
+    if not config.toolchainObj:
+        logging.error(f"unable to find toolchain {config.toolchain}")
+        return 2
+
     logging.debug(f" * target installation: {distribId} {distribVersion}")
     config.setPlatform(distribId, distribVersion)
 
@@ -651,14 +657,11 @@ def run(args: T.List[str]) -> int:
 
         logging.debug(f" * build plan: [{', '.join(items)}]")
 
-    # grab a toolchain
-    config.toolchainObj = getToolchain(config.toolchain, config)
-    if not config.toolchainObj:
-        logging.error(f"unable to find toolchain {config.toolchain}")
-        return 2
-
     if config.checkPackages:
-        retCode = config.treatPlatformPackages(buildPlan)
+        packagesToCheck = []
+        pkgManager = getPkgManager(config.distribId, packagesToCheck)
+
+        retCode = config.treatPlatformPackages(pkgManager, packagesToCheck, buildPlan)
         if retCode:
             return retCode
 
@@ -666,6 +669,7 @@ def run(args: T.List[str]) -> int:
     if not config.toolchainObj.activate():
         logging.error('error activating toolchain')
         return 6
+
 
     def buildModule(buildItem) -> bool:
         ''' '''
