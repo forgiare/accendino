@@ -126,7 +126,7 @@ class AccendinoConfig:
         self.buildType = 'release'
         self.projectName = None
         self.workDir = pathlib.PurePath(os.getcwd())
-        self.prefix = self.workDir / 'deploy'
+        self.prefix = None
         self.projectDir = None
         self.sourcesDir = None
         self.buildsDir = None
@@ -482,6 +482,9 @@ class AccendinoConfig:
             self.projectName = self.context.get('PROJECT', 'work')
 
         self.projectDir = pathlib.PurePath(self.workDir, self.projectName)
+        if not self.prefix:
+            self.prefix = self.projectDir / 'deploy'
+
         self.sourcesDir = self.projectDir / 'sources'
         self.buildsDir = self.projectDir / 'build'
         self.toolsDir = self.projectDir / 'tools'
