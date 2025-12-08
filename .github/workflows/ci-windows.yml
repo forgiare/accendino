@@ -42,5 +42,5 @@ jobs:
         run: python -m pip install .
 
       - name: Test ${{ matrix.cfg.descr }}
-        run: accendino --prefix=/tmp/ogon --targets=${{ matrix.cfg.targets }} ${{ matrix.cfg.extraArgs }} --debug ${{ matrix.cfg.file }}
+        run: accendino --targets=${{ matrix.cfg.targets }} ${{ matrix.cfg.extraArgs }} --debug ${{ matrix.cfg.file }}
 

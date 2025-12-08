@@ -42,6 +42,7 @@ class IToolChain:
                 if v:
                     toCheck += v
 
+        logging.debug(f"packages to check from toolchain artifacts: {', '.join(toCheck)}")
         toInstall = packageManager.checkMissing(toCheck)
         if len(toInstall) and doInstall:
             return packageManager.installPackages(toInstall)
@@ -68,6 +69,57 @@ class IToolChain:
         '''
         return {}
 
+def computeEnvDiff(inputIter):
+    '''
+        computes the new env variables set after a call to VsDevCmd.bat, it parses content that
+        looks like:
+            var1=toto
+            var2=tata
+            ========
+            **********************************************************************
+            ** Visual Studio 2022 Developer Command Prompt v17.14.14
+            ** Copyright (c) 2025 Microsoft Corporation
+            **********************************************************************
+            var1=toto
+            var4=titi
+            var3=tutu
+            var2=tata
+        and the output will be {'var3': 'tutu', 'var4': 'titi'}
+    '''
+    separator = '========'
+    env1 = {}
+    env2 = {}
+    target = env1
+
+    for l in inputIter:
+        l = l.strip()
+        if not l or l[0] in ('*',):
+            continue
+
+        if l == separator:
+            target = env2
+            continue
+
+        var, value = l.split('=', 2)
+        if var.lower() == 'path':
+            var = 'PATH'
+        target[var] = value
+
+    diff = {}
+    treatedKeys = []
+    for k, v in env2.items():
+        treatedKeys.append(k)
+        if k not in env1 or env1[k] != v:
+            diff[k] = v
+
+    # sanity check should never print anything
+    for k in env1:
+        if k not in treatedKeys:
+            logging.error(f"Warning: key {k} was removed by the script")
+
+    return diff
+
+
 KNOWN_VS_FLAVORS = ('msvc', 'clang')
 
 class VsToolChain(IToolChain):
@@ -88,6 +140,9 @@ class VsToolChain(IToolChain):
         self.setvarsPath = None
         self.setvarsPs1Path = None
         self.flavor = flavor
+        self.extraEnv = None
+
+
 
     def activate(self) -> bool:
         config = self.config
@@ -130,15 +185,24 @@ class VsToolChain(IToolChain):
         self.installationPath = pathlib.PurePath(props['installationPath'])
         self.setvarsPath = self.installationPath / "Common7" / "Tools" / "VsDevCmd.bat"
         self.setvarsPs1Path = self.installationPath / "Common7" / "Tools" / "Launch-VsDevShell.ps1"
-        return True
 
-    def prepareItems(self) -> str:
         VSDEVCMD_ARCHS = {
             "x86_64": "amd64",
         }
 
-        config = self.config
-        return f"& '{self.setvarsPs1Path}' -Arch {VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)} -SkipAutomaticLocation\n"
+        cmdLine = f'set && echo ======== && call `"{self.setvarsPath}`" -arch={VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)} && set'
+        cmd = ['cmd.exe', '/c', cmdLine]
+
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if p.returncode != 0:
+            logging.error(f'error retrieving VS environment variables, errorCode={p.returncode}')
+            return False
+
+        self.extraEnv = computeEnvDiff(p.stdout.readlines())
+        return True
+
+    def extraEnv(self, _artifacts) -> T.Dict[str, str]:
+        return self.extraEnv
 
 
 class GccToolChain(IToolChain):
@@ -205,13 +269,17 @@ class MingwToolChain(IToolChain):
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
+                'Debian->mingw@i686': ['gcc-mingw-w64-i686-posix'],
                 'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
+                'Debian->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
                 'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
                 'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
             }),
             'c++': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['g++-mingw-w64-i686-win32'],
+                'Debian->mingw@i686': ['g++-mingw-w64-i686-win32'],
                 'Ubuntu->mingw@x86_64': ['g++-mingw-w64-x86-64-win32'],
+                'Debian->mingw@x86_64': ['g++-mingw-w64-x86-64-win32'],
             })
         }
         self.config = config

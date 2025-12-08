@@ -15,7 +15,7 @@ from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuild
 from accendino.localdeps import getPkgManager
 from accendino.sources import LocalSource, GitSource, RemoteArchiveSource
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
-    NativePath, RunInShell, mergePkgDeps
+    NativePath, RunInShell, mergePkgDeps, is_exact_instance
 from accendino.toolchain import getToolchain
 
 
@@ -58,7 +58,7 @@ def detectPlatform() -> None:
 
             return (distrib_id, distrib_version)
         except:
-            logging.debug(" * failed to detect platform using /etc/lsb-release")
+            logging.debug(" * failed to detect platform using /etc/lsb-release (not an error)")
 
         # Debian based systems
         try:
@@ -68,7 +68,7 @@ def detectPlatform() -> None:
             distrib_version = f"{int(tokens[0]):02d}.{int(tokens[1]):02d}"
             return (distrib_id, distrib_version)
         except:
-            logging.debug(" * failed reading /etc/debian_version")
+            logging.debug(" * failed reading /etc/debian_version  (not an error)")
 
         # Fedora based systems
         try:
@@ -78,7 +78,7 @@ def detectPlatform() -> None:
             distrib_version = tokens[2]
             return (distrib_id, distrib_version)
         except:
-            logging.debug(" * failed reading /etc/fedora-version")
+            logging.debug(" * failed reading /etc/fedora-version  (not an error)")
 
     elif plat_system in ('Linux', 'FreeBSD',):
         # Arch / FreeBSD
@@ -153,6 +153,7 @@ class AccendinoConfig:
         self.getCrossPlatformFile = None
         self.optionsFile = None
         self.options = None
+        self.includesStack = []
 
         #
         # populate a search path that has:
@@ -268,8 +269,14 @@ class AccendinoConfig:
 
     def findSourceFile(self, fname: str, include_once: bool = True) -> str:
         searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
-        if fname.startswith('.'):
-            searchPaths = []
+
+        # also search in the directory of the last included file
+        if len(self.includesStack) > 0:
+            searchPaths.append( os.path.dirname(self.includesStack[-1]) )
+
+        # if the requested file is a path then just try to open it
+        if fname.startswith('.') or fname.startswith('/'):
+            searchPaths = ['']
 
         for p in searchPaths:
             fpath = os.path.join(p, fname)
@@ -435,12 +442,13 @@ class AccendinoConfig:
 
         if fpath is None:
             logging.error(f'file {fname} not found')
-            return False
+            sys.exit(-1)
 
+        self.includesStack.append(fpath)
         with open(fpath, "rt", encoding="utf8") as f:
             code = compile(f.read(), os.path.basename(fpath), "exec")
             exec(code, {}, self.context)
-
+        self.includesStack.pop()
         return True
 
     def finalizeConfig(self) -> bool:
@@ -579,7 +587,6 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
     return _ARGS_CONTINUE
 
 
-
 def run(args: T.List[str]) -> int:
     ''' '''
     logging.level("info")
@@ -602,7 +609,7 @@ def run(args: T.List[str]) -> int:
     logging.info("=== accendino ===")
 
     if config.optionsFile:
-        logging.debug(f' * reading build options from {config.optionsFile}')
+        logging.debug(f'reading build options from {config.optionsFile}')
         config.options = configparser.ConfigParser()
         config.options.optionxform = str
         config.options.read(config.optionsFile)
@@ -618,7 +625,7 @@ def run(args: T.List[str]) -> int:
 
     config.sources += extraArgs
     if not config.sources: # defaults to build ogon
-        logging.info(' * no source file provided using default ogon.accendino')
+        logging.info('no source file provided using default ogon.accendino')
         config.sources += ['ogon.accendino']
 
     (distribId, distribVersion) = detectPlatform()
@@ -626,14 +633,14 @@ def run(args: T.List[str]) -> int:
     if config.targetArch is None:
         config.targetArch = config.localArch
 
+    logging.debug(f"target installation: {distribId} {distribVersion}")
+    config.setPlatform(distribId, distribVersion)
+
     # grab a toolchain
     config.toolchainObj = getToolchain(config.toolchain, config)
     if not config.toolchainObj:
         logging.error(f"unable to find toolchain {config.toolchain}")
         return 2
-
-    logging.debug(f" * target installation: {distribId} {distribVersion}")
-    config.setPlatform(distribId, distribVersion)
 
     for f in config.sources:
         if not config.readSource(f, True):
@@ -658,7 +665,7 @@ def run(args: T.List[str]) -> int:
         for i in buildPlan:
             items.append(i.name)
 
-        logging.debug(f" * build plan: [{', '.join(items)}]")
+        logging.debug(f"build plan: [{', '.join(items)}]")
 
     if config.checkPackages:
         packagesToCheck = []
@@ -668,7 +675,7 @@ def run(args: T.List[str]) -> int:
         if retCode:
             return retCode
 
-    logging.debug(f'   ==> activating toolchain {config.toolchainObj.description}')
+    logging.debug(f'==> activating toolchain {config.toolchainObj.description}')
     if not config.toolchainObj.activate():
         logging.error('error activating toolchain')
         return 6
@@ -676,12 +683,12 @@ def run(args: T.List[str]) -> int:
 
     def buildModule(buildItem) -> bool:
         ''' '''
-        logging.debug('   ==> preparing')
+        logging.debug('==> preparing')
         if not buildItem.prepare(config):
             logging.error(f"prepare error for {buildItem.name}")
             return False
 
-        logging.debug('   ==> building')
+        logging.debug('==> building')
         if not buildItem.build(config):
             logging.error(f"build error for {buildItem.name}, check logs in {buildItem.logFile}")
             return False
@@ -690,17 +697,21 @@ def run(args: T.List[str]) -> int:
     exitCode = 0
     if config.doBuild:
         for item in buildPlan:
-            logging.info(f' * module {item.name}')
+            isDepsBuildArtifact = is_exact_instance(item, DepsBuildArtifact)
 
-            logging.debug('   ==> init')
-            if not item.init(config):
-                logging.error(f"error initializing {item.name}")
-                return 1
+            extra = ' is only deps' if isDepsBuildArtifact else ''
+            logging.info(f' * module {item.name}{extra}')
 
-            logging.debug('   ==> checking out')
-            if not item.checkout(config):
-                logging.error(f"checkout error for {item.name}")
-                return 1
+            if not isDepsBuildArtifact:
+                logging.debug('==> init')
+                if not item.init(config):
+                    logging.error(f"error initializing {item.name}")
+                    return 1
+
+                logging.debug('==> checking out')
+                if not item.checkout(config):
+                    logging.error(f"checkout error for {item.name}")
+                    return 1
 
             if config.resumeFrom:
                 if item.name != config.resumeFrom:
@@ -709,8 +720,9 @@ def run(args: T.List[str]) -> int:
                 # We've found the item to resume the build from
                 config.resumeFrom = None
 
-            if not buildModule(item):
-                return 1
+            if not isDepsBuildArtifact:
+                if not buildModule(item):
+                    return 1
 
     logging.info("=== finished ===")
     return exitCode

@@ -5,20 +5,12 @@
 #
 #    Detecting or building FreeRDP
 #
-
-freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
-              'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
-              'libxml2-dev', 'libxrandr-dev', 'libxi-dev']
-
-
-FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF', '-DWITH_CJSON_REQUIRED=ON']
-
-freerdp_fedora_redhat_base = ['cups-devel', 'dbus-glib-devel', 'dbus-devel', 'systemd-devel',
-  'libuuid-devel', 'pulseaudio-libs-devel', 'gcc-c++', 'libXrandr-devel', 'gsm-devel', 'gcc',
-  'libX11-devel', 'libXext-devel', 'libXinerama-devel', 'libXcursor-devel',
-  'libXi-devel', 'libXdamage-devel', 'libXv-devel', 'libxkbfile-devel', 'alsa-lib-devel',
-   'glib2-devel'
-]
+#    handled options with prefix freerdp:
+#     * fromSources force build from sources
+#     * with_ffmpeg build with FFmpeg
+#     * with_openh264 build with OpenH264
+#     * with_sdl2 build with SDL2
+#
 
 include('zlib')
 include('uriparser')
@@ -33,70 +25,116 @@ include('openh264')
 include('cairo')
 include('sdl2')
 
-freerdp_deps = ['zlib-artifact', 'uriparser-artifact', 'openssl-artifact', 'cjson-artifact', 'libusb-artifact',
-                'opus-artifact',  'faad2-artifact', 'cairo-artifact']
+freerdp_fromSources = getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
 
-if targetDistribId in ('Windows',):
-    # dropping faac for now, as it needs msys to generate the build files
-    freerdp_deps += ['openh264-artifact']
-    FREERDP_opts += ['-DWITH_FFMPEG=OFF', '-DWITH_SWSCALE=OFF', '-DWITH_OPENH264=ON', '-DWITH_FAAC=OFF', '-DWITH_SHADOW=OFF']
-else:
-    freerdp_deps += ['ffmpeg-artifact', 'faac-artifact']
-    FREERDP_opts += ['-DWITH_FFMPEG=ON', '-DWITH_OPENH264=OFF']
 
-if targetDistribId in ('mingw',):
-    FREERDP_opts += ['-DWITH_SHADOW=OFF', '-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',
-        '-DWITH_MANPAGES=OFF', '-DWITH_WEBVIEW=OFF', '-DWITH_SIMD=ON', '-DWITH_SYSTEMD=OFF',
-        '-DOPENSSL_INCLUDE_DIR={prefix}/include', # needed so that /usr/include is not added to include path
-        '-DCMAKE_MODULE_PATH={prefix}/lib/cmake;{prefix}/lib;{prefix}'
+if freerdp_fromSources:
+    FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF', '-DWITH_CJSON_REQUIRED=ON']
+
+    freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
+                  'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
+                  'libxml2-dev', 'libxrandr-dev', 'libxi-dev']
+
+    freerdp_fedora_redhat_base = ['cups-devel', 'dbus-glib-devel', 'dbus-devel', 'systemd-devel',
+      'libuuid-devel', 'pulseaudio-libs-devel', 'gcc-c++', 'libXrandr-devel', 'gsm-devel', 'gcc',
+      'libX11-devel', 'libXext-devel', 'libXinerama-devel', 'libXcursor-devel',
+      'libXi-devel', 'libXdamage-devel', 'libXv-devel', 'libxkbfile-devel', 'alsa-lib-devel',
+       'glib2-devel'
     ]
-    freerdp_deps += ['SDL2-artifact', 'SDL2_image-artifact', 'SDL2_ttf-artifact']
 
-if targetDistribId in ('Darwin',):
-    freerdp_deps += ['SDL2-artifact', 'SDL2_image-artifact', 'SDL2_ttf-artifact']
-#
-# specifies
-#    freerdp2, freerdp2-static, freerdp2-clientOnly, freerdp2-clientOnly-static,
-#    freerdp3, freerdp3-static, freerdp3-clientOnly, freerdp3-clientOnly-static,
-#
-for isStatic in (True, False,):
-    provides=['freerdp']
+    freerdp_deps = ['zlib-artifact', 'uriparser-artifact', 'openssl-artifact', 'cjson-artifact', 'libusb-artifact',
+                    'opus-artifact',  'faad2-artifact', 'faac-artifact']
 
-    staticStr = ""
-    staticOptions = []
-    if isStatic:
-        staticOptions = ['-DBUILD_SHARED_LIBS=OFF']
-        staticStr = "-static"
-        provides.append('freerdp-static')
+    if getOption('freerdp.with_ffmpeg', True):
+        freerdp_deps.append('ffmpeg-artifact')
+        FREERDP_opts.append('-DWITH_FFMPEG=ON')
+        FREERDP_opts.append('-DWITH_SWSCALE=ON')
+    else:
+        FREERDP_opts += ['-DWITH_FFMPEG=OFF', '-DWITH_SWSCALE=OFF']
 
-    for clientOnly in (True, False,):
-        clientStr = ""
-        clientOnlyOptions = []
-        if clientOnly:
-            clientOnlyOptions = ['-DWITH_SERVER=OFF']
-            clientStr = "-clientOnly"
-        else:
-            clientOnlyOptions = ['-DWITH_SERVER=ON']
+    if getOption('freerdp.with_openh264', False):
+        freerdp_deps.append('openh264-artifact')
+        FREERDP_opts.append('-DWITH_OPENH264=ON')
+    else:
+        FREERDP_opts.append('-DWITH_OPENH264=OFF')
 
-        options = staticOptions + clientOnlyOptions + FREERDP_opts
-        ARTIFACTS += [
-            CMakeBuildArtifact(f'freerdp2{clientStr}{staticStr}', freerdp_deps,
-                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
-                options, provides=provides,
-                pkgs = {
-                    REDHAT_LIKE: freerdp_fedora_redhat_base,
-                    UBUNTU_LIKE: freerdp_ubuntu_debian_common
-                },
-                toolchainArtifacts='c,c++'
-            ),
+    if getOption('freerdp.with_cairo', True):
+        freerdp_deps.append('cairo-artifact')
+        FREERDP_opts.append('-DWITH_CAIRO=ON')
+    else:
+        FREERDP_opts.append('-DWITH_CAIRO=OFF')
 
-            CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
-                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
-                options, provides=provides,
-                pkgs = {
-                    REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
-                    UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev', 'libkrb5-dev'],
-                },
-                toolchainArtifacts='c,c++'
-            ),
+    if targetDistribId in ('mingw',):
+        FREERDP_opts += ['-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',
+            '-DWITH_MANPAGES=OFF', '-DWITH_WEBVIEW=OFF', '-DWITH_SIMD=ON', '-DWITH_SYSTEMD=OFF',
+            '-DOPENSSL_INCLUDE_DIR={prefix}/include', # needed so that /usr/include is not added to include path
+            '-DCMAKE_MODULE_PATH={prefix}/lib/cmake;{prefix}/lib;{prefix}'
         ]
+
+    if getOption('freerdp.with_sdl2', targetDistribId in ('Darwin', 'mingw',)):
+        FREERDP_opts += ['-DWITH_SDL2=ON']
+        freerdp_deps += ['SDL2-artifact', 'SDL2_image-artifact', 'SDL2_ttf-artifact']
+    else:
+        FREERDP_opts += ['-DWITH_SDL2=OFF']
+
+    if targetDistribId in ('Windows', 'mingw',):
+        FREERDP_opts += ['-DWITH_SHADOW=OFF']
+
+
+    #
+    # specifies
+    #    freerdp2, freerdp2-static, freerdp2-clientOnly, freerdp2-clientOnly-static,
+    #    freerdp3, freerdp3-static, freerdp3-clientOnly, freerdp3-clientOnly-static,
+    #
+    for isStatic in (True, False,):
+        provides=['freerdp']
+
+        staticStr = ""
+        staticOptions = []
+        if isStatic:
+            staticOptions = ['-DBUILD_SHARED_LIBS=OFF']
+            staticStr = "-static"
+            provides.append('freerdp-static')
+
+        for clientOnly in (True, False,):
+            clientStr = ""
+            clientOnlyOptions = []
+            if clientOnly:
+                clientOnlyOptions = ['-DWITH_SERVER=OFF']
+                clientStr = "-clientOnly"
+            else:
+                clientOnlyOptions = ['-DWITH_SERVER=ON']
+
+            options = staticOptions + clientOnlyOptions + FREERDP_opts
+            ARTIFACTS += [
+                CMakeBuildArtifact(f'freerdp2{clientStr}{staticStr}', freerdp_deps,
+                    GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
+                    options, provides=provides + ['freerdp2-artifact'],
+                    pkgs = {
+                        REDHAT_LIKE: freerdp_fedora_redhat_base,
+                        UBUNTU_LIKE: freerdp_ubuntu_debian_common
+                    },
+                    toolchainArtifacts='c,c++'
+                ),
+
+                CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
+                    GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
+                    options, provides=provides + ['freerdp3-artifact'],
+                    pkgs = {
+                        REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
+                        UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev', 'libkrb5-dev'],
+                    },
+                    toolchainArtifacts='c,c++'
+                ),
+            ]
+else:
+    freerdp2_pkgDeps = {
+        'Ubuntu': ['freerdp2-dev']
+    }
+    freerdp3_pkgDeps = {
+        'Ubuntu': ['freerdp3-dev']
+    }
+    ARTIFACTS += [
+        DepsBuildArtifact('freerdp2-artifact', [], pkgs=freerdp2_pkgDeps),
+        DepsBuildArtifact('freerdp3-artifact', [], pkgs=freerdp3_pkgDeps),
+    ]

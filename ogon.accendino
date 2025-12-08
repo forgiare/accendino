@@ -13,7 +13,7 @@ ogon_ubuntu_debian_base=['libprotobuf-dev', 'libprotoc-dev', 'protobuf-compiler'
 xogon_ubuntu_debian_base=['xutils-dev', 'libpixman-1-dev',
      'x11proto-present-dev',  'x11proto-scrnsaver-dev', 'x11proto-fonts-dev',
     'x11proto-xf86dri-dev', 'x11proto-record-dev', 'xfonts-utils', 'x11-xkb-utils', 'x11proto-dev',
-    'libdrm-dev', 'libxfont-dev', 'mesa-common-dev', 'libpixman-1-dev',
+    'libdrm-dev', 'libxfont-dev', 'mesa-common-dev', 'libpixman-1-dev', 'libxkbfile-dev',
     DepsAdjuster('< Ubuntu 20.04', add=['x11proto-dri3-dev', 'x11proto-resource-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev', 'x11proto-xcmisc-dev']),
     DepsAdjuster('< Ubuntu 18.04', add=['libxfont-dev']),
 ]
@@ -29,7 +29,7 @@ xogon_fedora_base = ['pixman-devel', 'libXcomposite-devel', 'libXpresent-devel',
 
 
 ARTIFACTS += [
-    CMakeBuildArtifact('ogon', ['freerdp2'], GitSource('https://github.com/ogon-project/ogon.git', 'master'), OGON_opts, parallelJobs=False,
+    CMakeBuildArtifact('ogon', ['freerdp2-artifact'], GitSource('https://github.com/ogon-project/ogon.git', 'master'), OGON_opts, parallelJobs=False,
         pkgs = {
             UBUNTU_LIKE: ogon_ubuntu_debian_base + [
                 'libprotobuf-c-dev',
@@ -105,5 +105,5 @@ ARTIFACTS += [
         }
     ),
 
-    DepsBuildArtifact('full-ogon-freerdp2', ['freerdp2', 'ogon-greeter', 'ogon-xserver', 'ogon-channels', 'ogon-pulseaudio']),
+    DepsBuildArtifact('full-ogon-freerdp2', ['freerdp2-artifact', 'ogon-greeter', 'ogon-xserver', 'ogon-channels', 'ogon-pulseaudio']),
 ]
