@@ -224,6 +224,11 @@ def as_msys2_path(p) -> str:
 
     return p.as_posix()
 
+def is_exact_instance(obj, klass):
+    s1 = obj.__class__.__name__
+    s2 = klass.__name__
+    return s1 == s2
+
 
 def envForDepotTools(env: T.Dict[str, str] = None):
     ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between

@@ -1,6 +1,8 @@
+import os
 import pathlib
 import subprocess
 import json
+import tempfile
 import typing as T
 from zenlog import log as logging
 from accendino.localdeps import PackageManager
@@ -42,6 +44,7 @@ class IToolChain:
                 if v:
                     toCheck += v
 
+        logging.debug(f"packages to check from toolchain artifacts: {', '.join(toCheck)}")
         toInstall = packageManager.checkMissing(toCheck)
         if len(toInstall) and doInstall:
             return packageManager.installPackages(toInstall)
@@ -68,6 +71,57 @@ class IToolChain:
         '''
         return {}
 
+def computeEnvDiff(inputIter):
+    '''
+        computes the new env variables set after a call to VsDevCmd.bat, it parses content that
+        looks like:
+            var1=toto
+            var2=tata
+            ========
+            **********************************************************************
+            ** Visual Studio 2022 Developer Command Prompt v17.14.14
+            ** Copyright (c) 2025 Microsoft Corporation
+            **********************************************************************
+            var1=toto
+            var4=titi
+            var3=tutu
+            var2=tata
+        and the output will be {'var3': 'tutu', 'var4': 'titi'}
+    '''
+    separator = '========'
+    env1 = {}
+    env2 = {}
+    target = env1
+
+    for l in inputIter:
+        l = l.strip()
+        if not l or l[0] in ('*',):
+            continue
+
+        if l == separator:
+            target = env2
+            continue
+
+        var, value = l.split('=', 2)
+        if var.lower() == 'path':
+            var = 'PATH'
+        target[var] = value
+
+    diff = {}
+    treatedKeys = []
+    for k, v in env2.items():
+        treatedKeys.append(k)
+        if k not in env1 or env1[k] != v:
+            diff[k] = v
+
+    # sanity check should never print anything
+    for k in env1:
+        if k not in treatedKeys:
+            logging.error(f"Warning: key {k} was removed by the script")
+
+    return diff
+
+
 KNOWN_VS_FLAVORS = ('msvc', 'clang')
 
 class VsToolChain(IToolChain):
@@ -88,6 +142,9 @@ class VsToolChain(IToolChain):
         self.setvarsPath = None
         self.setvarsPs1Path = None
         self.flavor = flavor
+        self.extraEnvMap = None
+
+
 
     def activate(self) -> bool:
         config = self.config
@@ -130,15 +187,30 @@ class VsToolChain(IToolChain):
         self.installationPath = pathlib.PurePath(props['installationPath'])
         self.setvarsPath = self.installationPath / "Common7" / "Tools" / "VsDevCmd.bat"
         self.setvarsPs1Path = self.installationPath / "Common7" / "Tools" / "Launch-VsDevShell.ps1"
-        return True
 
-    def prepareItems(self) -> str:
         VSDEVCMD_ARCHS = {
             "x86_64": "amd64",
         }
 
-        config = self.config
-        return f"& '{self.setvarsPs1Path}' -Arch {VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)} -SkipAutomaticLocation\n"
+        # run once the VsDevCmd.bat to catch the extra environment
+        with tempfile.NamedTemporaryFile(suffix='.bat', mode='wt', encoding='utf-8', delete_on_close=False) as t:
+            t.write(f'@set\n@echo ========\n@call "{str(self.setvarsPath)}" -arch={VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)}\n@set')
+            t.flush()
+            t.close()
+
+            cmd = [ t.name ]
+            logging.debug(f'running {" ".join(cmd)}')
+            p = subprocess.run(cmd, stdout=subprocess.PIPE, encoding='utf-8')
+            os.unlink(t.name)
+            if p.returncode != 0:
+                logging.error(f'error retrieving VS environment variables, errorCode={p.returncode}')
+                return False
+
+            self.extraEnvMap = computeEnvDiff(p.stdout.split('\n'))
+            return True
+
+    def extraEnv(self, _artifacts) -> T.Dict[str, str]:
+        return self.extraEnvMap
 
 
 class GccToolChain(IToolChain):
@@ -205,13 +277,17 @@ class MingwToolChain(IToolChain):
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
+                'Debian->mingw@i686': ['gcc-mingw-w64-i686-posix'],
                 'Ubuntu->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
+                'Debian->mingw@x86_64': ['gcc-mingw-w64-x86-64-posix'],
                 'Fedora->mingw@i686': ['mingw32-gcc', 'mingw32-crt'],
                 'Fedora->mingw@x86_64': ['mingw64-gcc', 'mingw64-crt'],
             }),
             'c++': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['g++-mingw-w64-i686-win32'],
+                'Debian->mingw@i686': ['g++-mingw-w64-i686-win32'],
                 'Ubuntu->mingw@x86_64': ['g++-mingw-w64-x86-64-win32'],
+                'Debian->mingw@x86_64': ['g++-mingw-w64-x86-64-win32'],
             })
         }
         self.config = config

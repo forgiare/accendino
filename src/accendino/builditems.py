@@ -66,7 +66,7 @@ class BuildStepDump:
         return True
 
 PREPARE_DUMP_FILE = 'accendino.prepared'
-BUILT_FILE = 'accentino.built'
+BUILT_FILE = 'accendino.built'
 
 
 class DepsBuildArtifact:
@@ -149,7 +149,7 @@ class BuildArtifact(DepsBuildArtifact):
 
     def _updatePATHlike(self, config, env: T.Dict[str, str], key: str, preExtra: T.List[str] = [],
                         postExtra: T.List[str] = [], sep: str = ':') -> None:
-        ''' updates an env variable that is like PATh or PKG_CONFIG_PATH '''
+        ''' updates an env variable that is like PATH or PKG_CONFIG_PATH '''
         value = env.get(key, None)
         if value:
             l = value.split(sep)
@@ -183,27 +183,51 @@ class BuildArtifact(DepsBuildArtifact):
         with open(self.buildDir / 'setEnv.ps1', 'wt', encoding='utf8') as f:
             self._pushPowerShellEnv(f, env, keys)
 
-            if self.needsMsys2:
-                f.write("$env:MSYS2_PATH_TYPE = 'inherit'\n")
+    def _updateEnvMap(self, config, base: T.Dict[str, str], extra: T.Dict[str, str]) -> T.Dict[str, str]:
+        for k, v in extra.items():
+            if not isinstance(v, str):
+                v = str(v)
 
+            if k == 'PATH':
+                self._updatePATHlike(config, base, 'PATH', v.split(os.pathsep), sep=os.pathsep)
+            elif k == 'PKG_CONFIG_PATH':
+                self._updatePATHlike(config, base, 'PKG_CONFIG_PATH', v.split(':'))
+            else:
+                base[k] = v
 
     def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Tuple[T.Dict[str, str], T.List[str]]:
         r = os.environ.copy()
-        r.update(extra)
+        xkeys = []
 
-        # add a PKG_CONFIG_PATH
-        xkeys = list(extra.keys()) + ['PKG_CONFIG_PATH']
-        self._updatePATHlike(config, r, 'PKG_CONFIG_PATH', ['{prefix_posix}/{libdir}/pkgconfig'])
-        if not config.crossCompilation:
-            # adds the target bin directory
-            self._updatePATHlike(config, r, 'PATH', [pathlib.PurePath(config.prefix, 'bin')], sep=os.pathsep)
-            xkeys.append('PATH')
+        if self.needsMsys2:
+            r['MSYS2_PATH_TYPE'] = 'inherit'
+            xkeys.append('MSYS2_PATH_TYPE')
 
+        # start by updating the base environment with what's comes from the toolchain
         if not self.skipToolchainEnv:
             toolchainEnv = config.toolchainObj.extraEnv(self.toolchainArtifacts)
             if toolchainEnv:
+                self._updateEnvMap(config, r, toolchainEnv)
                 xkeys += toolchainEnv.keys()
-                r.update(toolchainEnv)
+
+        # add a PKG_CONFIG_PATH
+        xkeys.append('PKG_CONFIG_PATH')
+        xx = {
+            'PKG_CONFIG_PATH': '{prefix_posix}/{libdir}/pkgconfig',
+        }
+
+        # adds the target bin directory to the PATH
+        if not config.crossCompilation:
+            xx['PATH'] = pathlib.PurePath(config.prefix, 'bin')
+            xkeys.append('PATH')
+
+        self._updateEnvMap(config, r, xx)
+
+        # finally add the user provided extra env
+        self._updateEnvMap(config, r, extra)
+
+        xkeys += extra.keys()
+        xkeys = list( set(xkeys) )
 
         if createEnvFile:
             fileDumper = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
@@ -312,8 +336,6 @@ class BuildArtifact(DepsBuildArtifact):
     def _createPrepareFileWin32(self, config, env, xkeys) -> None:
         with open(self.buildDir / WIN_PREPARE_SCRIPT, "wt", encoding='utf8') as f:
             f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
-            if self.needsMsys2:
-                f.write("$Env:MSYS2_PATH_TYPE = 'inherit'\n")
 
             self._pushPowerShellEnv(f, env, xkeys)
 
@@ -349,7 +371,7 @@ class BuildArtifact(DepsBuildArtifact):
             if artifact and artifact.builtFile and os.path.exists(artifact.builtFile):
                 mtime = os.stat(artifact.builtFile).st_mtime
                 if self_mtime < mtime:
-                    logging.debug(f'rebuilding {self.name} because of {artifact.name} has a more recent build')
+                    logging.debug(f'rebuilding {self.name} because {artifact.name} has a more recent build')
                     return True
         return False
 
@@ -390,7 +412,7 @@ class BuildArtifact(DepsBuildArtifact):
         scriptBuilder(config, env, xkeys)
 
         ret = False
-        if config.distribId in ('Windows', ):
+        if config.distribId in ('Windows', ) and config.buildWithPowershell:
             logging.debug(f'running powershell .\\{WIN_PREPARE_SCRIPT}')
             ret = self.execute(['powershell', '-ExecutionPolicy', 'Unrestricted', '-File', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
         else:
@@ -419,8 +441,6 @@ class BuildArtifact(DepsBuildArtifact):
     def _createWin32BuildScript(self, config, env: T.Dict[str, str], xkeys) -> bool:
         with open(self.buildDir / WIN_BUILD_SCRIPT, "wt", encoding='utf8') as f:
             f.write("$PSDefaultParameterValues['*:Encoding'] = 'utf8'\n")
-            if self.needsMsys2:
-                f.write("$Env:MSYS2_PATH_TYPE = 'inherit'\n")
 
             self._pushPowerShellEnv(f, env, xkeys)
 
@@ -451,7 +471,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         (env, xkeys) = self._computeEnv(config, self.extraEnv)
 
-        if config.distribId in ('Windows',):
+        if config.distribId in ('Windows',) and config.buildWithPowershell:
             if not self._createWin32BuildScript(config, env, xkeys):
                 return False
 
@@ -577,7 +597,7 @@ class CMakeBuildArtifact(BuildArtifact):
         extra = {
             'Ubuntu|Debian|Redhat|Fedora|Arch|FreeBSD|Darwin': ['cmake']
         }
-        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build'], extra)
+        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build', 'make'], extra)
         pkgs = mergePkgDeps(pkgs, extra)
 
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)

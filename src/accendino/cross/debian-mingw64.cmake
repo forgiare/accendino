@@ -34,3 +34,10 @@ set(CMAKE_SYSROOT /usr/x86_64-w64-mingw32 CACHE STRING "toolchain default")
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY ON CACHE BOOL "toolchain default")
 set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "toolchain default")
 set(THREADS_PREFER_PTHREAD_FLAG ON CACHE BOOL "toolchain default")
+
+# mingw does not support C11
+#
+# https://stackoverflow.com/questions/52239644/mingw-w64-c11-threads-h-not-found
+add_compile_definitions(__STDC_NO_THREADS__)
+add_compile_definitions(__STDC_NO_ATOMICS__)
+
