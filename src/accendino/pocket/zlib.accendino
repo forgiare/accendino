@@ -28,11 +28,12 @@ if targetDistribId == 'Windows':
     zlib_fromSources = True
 
 if zlib_fromSources:
+    gzip_src = GitSource('https://github.com/madler/zlib.git', 'v1.3.1.2')
     ARTIFACTS += [
-        CMakeBuildArtifact('zlib', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1'),
+        CMakeBuildArtifact('zlib', [], gzip_src,
             cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
         ),
-        CMakeBuildArtifact('zlib-static', [], GitSource('https://github.com/madler/zlib.git', 'v1.3.1'),
+        CMakeBuildArtifact('zlib-static', [], gzip_src,
             cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=OFF']
         ),
     ]

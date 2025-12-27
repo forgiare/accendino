@@ -34,12 +34,12 @@ if x264_fromSources:
     builder = 'make'
     configureCmd = NativePath('{srcdir}', 'configure')
     x264PrefixArg = '--prefix={prefix_posix}'
-    extraEnv = {}
+    x264ExtraEnv = {}
     if distribId == 'Windows':
         builder = 'makeMsys2'
         configureCmd = '{srcdir_posix}/configure'
         x264PrefixArg = '--prefix={prefix_msys2}'
-        extraEnv['CC'] = 'cl.exe'
+        x264ExtraEnv['CC'] = 'cl.exe'
 
     for mod in ('static', 'shared',):
         ARTIFACTS += [
@@ -52,7 +52,7 @@ if x264_fromSources:
                 pkgs=x264Pkgs,
                 provides=[f'x264-{mod}-artifact'],
                 builder=builder,
-                extraEnv=extraEnv,
+                extraEnv=x264ExtraEnv,
                 skipToolchainEnv=crossCompilation
             ),
         ]

@@ -34,16 +34,16 @@ class LocalSource(Source):
                               f" at {self.srcdir}. Please fix this by hand")
                 return False
 
-            logging.debug(f"   ==> refreshing dir {target_dir}")
+            logging.debug(f"==> refreshing dir {target_dir}")
             return True
 
         if self.symlink:
-            logging.debug(f"   ==> linking {self.srcdir} to {target_dir}")
+            logging.debug(f"==> linking {self.srcdir} to {target_dir}")
             os.symlink(os.path.abspath(self.srcdir), target_dir)
             return True
 
         try:
-            logging.debug(f"   ==> copying {self.srcdir} to {target_dir}")
+            logging.debug(f"==> copying {self.srcdir} to {target_dir}")
             shutil.copytree(src=self.srcdir, dst=target_dir)
             return True
         except Exception as e:
@@ -77,11 +77,11 @@ class GitSource(Source):
     def checkout(self, target_dir: str, flog) -> bool:
         ''' '''
         if os.path.exists(target_dir):
-            logging.debug(f"   ==> refreshing git dir {target_dir}")
+            logging.debug(f"==> refreshing git dir {target_dir}")
             #cmd = ['git', 'pull']
             return True
 
-        logging.debug(f"   ==> checking out repo in {target_dir}")
+        logging.debug(f"==> checking out repo in {target_dir}")
         cmd = ['git', 'clone', self.url, '-b', self.branch, target_dir]
         if self.depth:
             cmd += ['--depth', str(self.depth)]

@@ -71,12 +71,13 @@ if ffmpeg_fromSources:
     if distribId == 'Windows':
         builder = 'makeMsys2'
         configureCmd = '{srcdir_posix}/configure'
-        ffmpegExtraArgs += ['--toolchain=msvc', '--env=PKG_CONFIG_PATH={prefix_msys2}/{libdir}/pkgconfig']
+        ffmpegDeps.append('zlib')
+        ffmpegExtraArgs += ['--disable-mediafoundation', '--toolchain=msvc', '--env=PKG_CONFIG_PATH={prefix_msys2}/{libdir}/pkgconfig']
 
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', ffmpegDeps,
-            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.1'),
+            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.2'),
             prepare_cmds=[
                 RunInShell([configureCmd, '--prefix={prefix_msys2}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + ffmpegExtraArgs),
             ],
