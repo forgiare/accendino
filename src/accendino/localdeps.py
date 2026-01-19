@@ -342,7 +342,7 @@ class PackageManager(PackageManagerBase):
 
         for managerName, pkgs in packagesPerManager.items():
             visualName = managerName and managerName or 'default'
-            logging.error(f'installing [{" ".join(pkgs)}] on {visualName} package manager')
+            logging.info(f'installing [{" ".join(pkgs)}] on {visualName} package manager')
             manager = self.managers[managerName]
             if not manager.installPackages(pkgs):
                 return False

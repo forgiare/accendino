@@ -229,6 +229,25 @@ def is_exact_instance(obj, klass):
     s2 = klass.__name__
     return s1 == s2
 
+def getArchLibDir(distribId: str, archId: str) -> str:
+    OS_KEYS = {
+        'Ubuntu': '-linux-gnu',
+        'Debian': '-linux-gnu',
+        'Fedora': '-linux-gnu',
+        'Redhat': '-linux-gnu'
+    }
+
+    osKey = OS_KEYS.get(distribId, distribId)
+    ARCH_KEYS = {
+        'amd64': 'x86_64',
+        'x86_64': 'x86_64',
+    }
+
+    archKey = ARCH_KEYS.get(archId, None)
+    if not archKey:
+        logging.error("arch {0} not handled yet", archId)
+    return archKey + osKey
+
 
 def envForDepotTools(env: T.Dict[str, str] = None):
     ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between
