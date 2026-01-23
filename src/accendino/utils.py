@@ -230,6 +230,9 @@ def is_exact_instance(obj, klass):
     return s1 == s2
 
 def getArchLibDir(distribId: str, archId: str) -> str:
+    if distribId == 'mingw':
+        return None
+
     OS_KEYS = {
         'Ubuntu': '-linux-gnu',
         'Debian': '-linux-gnu',

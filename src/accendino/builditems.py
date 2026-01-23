@@ -278,7 +278,7 @@ class BuildArtifact(DepsBuildArtifact):
         self.sourceDir = config.sourcesDir / self.name
 
         dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{config.buildType}"
-        self.buildDir = config.buildsDir / self.name / dirName
+        self.buildDir = config.buildsDir / dirName / self.name
 
         os.makedirs(self.buildDir, exist_ok=True)
 
