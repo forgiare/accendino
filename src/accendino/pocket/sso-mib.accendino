@@ -1,0 +1,18 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building sso-mib
+#
+
+ARTIFACTS += [
+    MesonBuildArtifact('sso-mib', [],
+            GitSource('https://github.com/siemens/sso-mib.git', 'main'),
+            mesonOpts=[''],
+            pkgs = {
+                UBUNTU_LIKE: ['libdbus-1-dev', 'libjson-glib-dev', 'uuid-dev', 'gir1.2-glib-2.0-dev', 'libjwt-dev'],
+            },
+            provides=['sso-mib-artifact']
+        ),
+]

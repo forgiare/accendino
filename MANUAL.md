@@ -15,6 +15,7 @@ _Accendino_ accepts the following command line arguments:
 * `--work-dir=<dir>`: the top directory where projects will be stored, current directory by default
 * `--resume-from=<target>`: resume the build starting at this target
 * `--project=<name>`: sets a project name (used to store all items of this project in the same tree), "work" by default
+* `--options=<path>`: path to an ini file containing build options
 * `<accendino file>`: the name of the root _Accendino_ file to load
 
 _Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like period separated string of location where
@@ -44,8 +45,17 @@ If a `--resume` argument is given we start the build plan from the provided buil
 
 ## Build options files
 A build options file is an ini file containing options for the build, the `accendino` section of the file is
-injected to the command line parser of _Accendino_, that means that options that you may provide on the command
-line can also be passed via this build options file.
+injected to the command line argument parser of _Accendino_, that means that options that you may provide on the command
+line can also be passed via this build options file. So for instance:
+
+```ini
+[accendino]
+prefix=/opt/install-there
+build-type=debug
+
+....
+
+```
 
 Otherwise the conventions in _Accendino_ files are:
 
@@ -116,7 +126,7 @@ Some examples:
     than can be `=`, `==`, `!`, `!=`, `<`, `<=`, `>` or `>=`. And `version` is the version string with 3 digits. For example: `cond='>= 0.5.1'`
 * `checkDistrib(cond : str) -> bool`: checks if the current distribution matches the [platform version condition](#platform-version-condition)
     given in `cond`
-* `̀getOption(opt: str, defaultValue) -> bool|str`: look for a build option in the build option file. The format for `opt` is `<section>.<variable>` so for instance
+* `getOption(opt: str, defaultValue) -> bool|str`: look for a build option in the build option file. The format for `opt` is `<section>.<variable>` so for instance
   `ffmpeg.fromSources` will look in the `ffmpeg` section of the INI file and will look for the `fromSources` variable. If the variable or the section are missing the
   default value is returned
 * `include(name : str, include_once: bool = True) -> bool`: allows to include another _Accendino_ source file. _Accendino_ will search for this file in the following

@@ -10,6 +10,7 @@
 #     * with_ffmpeg build with FFmpeg
 #     * with_openh264 build with OpenH264
 #     * with_sdl2 build with SDL2
+#     * with_sso-mib build with sso-mib support
 #
 
 include('zlib')
@@ -24,12 +25,13 @@ include('faad2')
 include('openh264')
 include('cairo')
 include('sdl2')
+include('sso-mib')
 
 freerdp_fromSources = getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
 
 
 if freerdp_fromSources:
-    FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF', '-DWITH_CJSON_REQUIRED=ON']
+    FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF']
 
     freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
                   'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
@@ -45,6 +47,8 @@ if freerdp_fromSources:
     freerdp_deps = ['zlib-artifact', 'uriparser-artifact', 'openssl-artifact', 'cjson-artifact', 'libusb-artifact',
                     'opus-artifact',  'faad2-artifact', 'faac-artifact']
 
+
+    freerdp3_opts = ['-DWITHOUT_FREERDP3x_DEPRECATED=OFF', '-DWITH_CJSON_REQUIRED=ON']
     freerdp_ffmpeg_opts = ['-DWITH_FFMPEG=OFF', '-DWITH_SWSCALE=OFF']
     if getOption('freerdp.with_ffmpeg', True):
         freerdp_deps.append('ffmpeg-artifact')
@@ -71,6 +75,11 @@ if freerdp_fromSources:
         FREERDP_opts.append('-DWITH_CAIRO=ON')
     else:
         FREERDP_opts.append('-DWITH_CAIRO=OFF')
+
+    if getOption('freerdp.with_sso-mib', False):
+        if targetDistribId not in ('Windows',):
+            freerdp3_opts.append('-DWITH_SSO_MIB=ON')
+            freerdp_deps.append('sso-mib-artifact')
 
     if targetDistribId in ('mingw',):
         FREERDP_opts += ['-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',
@@ -128,7 +137,7 @@ if freerdp_fromSources:
 
                 CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
                     GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
-                    options + freerdp_ffmpeg_opts,
+                    options + freerdp3_opts + freerdp_ffmpeg_opts,
                     provides=provides + ['freerdp3-artifact'],
                     pkgs = {
                         REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
