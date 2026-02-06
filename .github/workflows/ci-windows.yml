@@ -36,7 +36,7 @@ jobs:
         run: |
             python -m venv _venv
             _venv\Scripts\Activate.ps1
-            pip install setuptools
+            pip install setuptools meson
 
       - name: Install ${{ matrix.cfg.descr }}
         run: python -m pip install .

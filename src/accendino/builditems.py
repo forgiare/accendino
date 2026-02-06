@@ -6,7 +6,8 @@ import typing as T
 
 from zenlog import log as logging
 from accendino.sources import Source
-from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell, as_msys2_path
+from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell, as_msys2_path, \
+    getArchLibDir
 
 
 class BuildStepDump:
@@ -212,8 +213,14 @@ class BuildArtifact(DepsBuildArtifact):
 
         # add a PKG_CONFIG_PATH
         xkeys.append('PKG_CONFIG_PATH')
+        pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig'
+
+        archLibDir = getArchLibDir(config.targetDistrib, config.targetArch)
+        if archLibDir:
+            pkg_config_path += ':{prefix_posix}/{libdir}/' + archLibDir + '/pkgconfig'
+
         xx = {
-            'PKG_CONFIG_PATH': '{prefix_posix}/{libdir}/pkgconfig',
+            'PKG_CONFIG_PATH': pkg_config_path,
         }
 
         # adds the target bin directory to the PATH
@@ -271,7 +278,7 @@ class BuildArtifact(DepsBuildArtifact):
         self.sourceDir = config.sourcesDir / self.name
 
         dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{config.buildType}"
-        self.buildDir = config.buildsDir / self.name / dirName
+        self.buildDir = config.buildsDir / dirName / self.name
 
         os.makedirs(self.buildDir, exist_ok=True)
 

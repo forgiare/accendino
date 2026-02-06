@@ -60,9 +60,12 @@ jobs:
         if: ${{ matrix.cfg.isClang == 'yes'}}
         run: sudo apt install clang
 
-      - name: Install ${{ matrix.cfg.descr }}
-        run: python3 -m pip install .
-
-      - name: Test ${{ matrix.cfg.descr }}
-        run: accendino --prefix=/tmp/ogon --targets=${{ matrix.cfg.targets }} ${{ matrix.cfg.extraArgs }} --debug ${{ matrix.cfg.file }}
+      # install meson, so that we get a decent recent version
+      - name: Install and test ${{ matrix.cfg.descr }}
+        run: |
+            python3 -m venv _venv
+            source _venv/bin/activate
+            pip install .
+            pip install meson
+            accendino --targets=${{ matrix.cfg.targets }} ${{ matrix.cfg.extraArgs }} --debug ${{ matrix.cfg.file }}
 

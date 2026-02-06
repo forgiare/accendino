@@ -1,11 +1,44 @@
 include('ogon.accendino')
 
 ARTIFACTS += [
-	CMakeBuildArtifact('ogon-forgiare', ['freerdp2-artifact'], GitSource('https://github.com/forgiare/ogon.git', 'future'),
-                                    OGON_opts, parallelJobs=True, provides='ogon',
+	MesonBuildArtifact('ogon-forgiare', ['freerdp2-artifact'],
+		GitSource('https://github.com/forgiare/ogon.git', 'future'),
+        mesonOpts=['-Dwith_openh264=true'], provides='ogon',
         pkgs=pickPkgDeps('ogon'), toolchainArtifacts='c,c++'
     ),
-    AutogenBuildArtifact('ogon-xserver-forgiare', pickDeps('ogon-xserver'),
+
+	MesonBuildArtifact('ogon-apps-forgiare', ['ogon'],
+		GitSource('https://github.com/forgiare/ogon-apps.git', 'master'),
+		pkgs = {
+			UBUNTU_LIKE: ['qtbase5-dev', 'qttools5-dev', 'qttools5-dev-tools'],
+			REDHAT_LIKE: ['qt5-qttools-devel']
+		},
+		provides='ogon-apps',
+		toolchainArtifacts='c++'
+	),
+
+	MesonBuildArtifact('ogon-qt-platform-forgiare', ['ogon-apps'],
+		GitSource('https://github.com/forgiare/ogon-platform-qt.git', 'master'),
+		mesonOpts=['-Dglobal_install=false'],
+		pkgs = {
+			UBUNTU_LIKE: ['libxkbcommon-dev', 'libfontconfig1-dev', 'libmtdev-dev', 'libudev-dev', 'libegl1-mesa-dev',
+							'qtbase5-private-dev', 'libqt5opengl5-dev', 'libxcursor-dev'],
+			REDHAT_LIKE: ['libxkbcommon-devel', 'fontconfig-devel', 'redhat-rpm-config', 'mesa-libgbm-devel', 'wine-fonts',
+							'qt5-qtbase-static', 'qt5-qtbase-devel', 'qt5-qtbase-private-devel', 'rpm-devel'],
+		},
+		provides='ogon-qt-platform'
+	),
+
+	MesonBuildArtifact('ogon-greeter-forgiare', ['ogon-qt-platform', 'ogon-forgiare'],
+		GitSource('https://github.com/forgiare/ogon-greeter-qt.git', 'master'),
+		pkgs = {
+			UBUNTU_LIKE: [],
+			REDHAT_LIKE: []
+		}, provides='ogon-greeter',
+		toolchainArtifacts='c++'
+	),
+
+	AutogenBuildArtifact('ogon-xserver-forgiare', pickDeps('ogon-xserver'),
 		GitSource('https://github.com/linuxrrze/xorg-xserver.git', 'master'),
         extraEnv=XOGON_ENV, runInstallDir='hw/xogon',
         configureArgs=['--disable-xfree86-utils', '--disable-linux-acpi', '--disable-linux-apm', '--disable-xorg', '--disable-xvfb',
@@ -18,7 +51,8 @@ ARTIFACTS += [
         pkgs = pickPkgDeps('ogon-xserver', { UBUNTU_LIKE: ['libsystemd-dev']})
     ),
 
-	DepsBuildArtifact('forgiare', ['ogon-forgiare', 'ogon-xserver-forgiare', 'full-ogon-freerdp2']),
+	DepsBuildArtifact('forgiare', ['ogon-forgiare', 'ogon-apps-forgiare', 'ogon-qt-platform-forgiare',
+								'ogon-xserver-forgiare', 'ogon-greeter-forgiare', 'full-ogon-freerdp2']),
 ]
 
 PROJECT='forgiare'
