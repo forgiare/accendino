@@ -25,6 +25,7 @@ include('faad2')
 include('openh264')
 include('cairo')
 include('sdl2')
+include('sdl3')
 include('sso-mib')
 
 freerdp_fromSources = getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
@@ -80,6 +81,10 @@ if freerdp_fromSources:
         if targetDistribId not in ('Windows',):
             freerdp3_opts.append('-DWITH_SSO_MIB=ON')
             freerdp_deps.append('sso-mib-artifact')
+
+    if getOption('freerdp.with_sdl3', True):
+        freerdp3_opts += ['-DWITH_CLIENT_SDL=ON', '-DWITH_CLIENT_SDL3=ON']
+        freerdp_deps += ['SDL3-artifact', 'SDL3_ttf-artifact', 'SDL_image-artifact']
 
     if targetDistribId in ('mingw',):
         FREERDP_opts += ['-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',

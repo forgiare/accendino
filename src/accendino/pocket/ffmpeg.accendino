@@ -72,7 +72,7 @@ if ffmpeg_fromSources:
         builder = 'makeMsys2'
         configureCmd = '{srcdir_posix}/configure'
         ffmpegDeps.append('zlib')
-        ffmpegExtraArgs += ['--disable-mediafoundation', '--toolchain=msvc', '--env=PKG_CONFIG_PATH={prefix_msys2}/{libdir}/pkgconfig']
+        ffmpegExtraArgs += ['--enable-shared', '--enable-static', '--disable-mediafoundation', '--toolchain=msvc', '--env=PKG_CONFIG_PATH={prefix_msys2}/{libdir}/pkgconfig']
 
 
     ARTIFACTS += [
