@@ -47,14 +47,39 @@ elif targetDistribId == 'mingw':
 if sdl3_fromSource:
     include('zlib')
 
+    sdl3_pkgDeps = {
+        REDHAT_LIKE: [
+        ],
+        UBUNTU_LIKE: [
+            'libxss-dev', 'libasound2-dev', 'libpulse-dev', 'libaudio-dev', 'libfribidi-dev',
+            'libjack-dev', 'libsndio-dev', 'libx11-dev', 'libxext-dev',
+            'libxrandr-dev', 'libxcursor-dev', 'libxfixes-dev', 'libxi-dev', 'libxss-dev', 'libxtst-dev',
+            'libxkbcommon-dev', 'libdrm-dev', 'libgbm-dev', 'libgl1-mesa-dev', 'libgles2-mesa-dev',
+            'libegl1-mesa-dev', 'libdbus-1-dev', 'libibus-1.0-dev', 'libudev-dev', 'libthai-dev',
+            DepsAdjuster('>= Ubuntu 22.04', ['libpipewire-0.3-dev', 'libwayland-dev', 'libdecor-0-dev', 'liburing-dev'])
+        ]
+    }
     sdl3_ttf_pkgDeps = {
         UBUNTU_LIKE: ['libharfbuzz-dev', 'libfreetype-dev'],
     }
 
+    sdl3_options = ['-DSDLIMAGE_SAMPLES=OFF', '-DSDLIMAGE_DEPS_SHARED=OFF', '-DSDLIMAGE_VENDORED=ON']
+    # by default we don't include AV1 and webp as they are quite long to build
+    if getOption('SDL3.with_av1', False):
+        sdl3_options.append('-DSDLIMAGE_AVIF=ON')
+    else:
+        sdl3_options.append('-DSDLIMAGE_AVIF=OFF')
+
+    if getOption('SDL3.with_webp', False):
+        sdl3_options.append('-DSDLIMAGE_WEBP=ON')
+    else:
+        sdl3_options.append('-DSDLIMAGE_WEBP=OFF')
+
     ARTIFACTS += [
         CMakeBuildArtifact('SDL3', [], GitSource('https://github.com/libsdl-org/SDL.git', 'release-3.4.x'),
             ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],
-            provides=['SDL3-artifact']
+            provides=['SDL3-artifact'],
+            pkgs=sdl3_pkgDeps
         ),
 
         CMakeBuildArtifact('SDL3_ttf', ['zlib-artifact', 'SDL3'],
@@ -67,7 +92,7 @@ if sdl3_fromSource:
 
         CMakeBuildArtifact('SDL3_image', ['SDL3'],
             GitSource('https://github.com/libsdl-org/SDL_image.git', 'release-3.4.x', shallow_submodules=True, recurse_submodules=True),
-            ['-DSDL3IMAGE_SAMPLES=OFF', '-DSDL3IMAGE_DEPS_SHARED=OFF'],
+            sdl3_options,
             provides=['SDL3_image-artifact']
         )
     ]

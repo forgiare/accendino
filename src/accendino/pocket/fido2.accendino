@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building FIDO2 libraries
+#
+
+
+if getOption('fido2.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
+    ARTIFACTS += [
+        CMakeBuildArtifact('libcbor', [], GitSource('https://github.com/PJK/libcbor.git', 'master'),
+            ['-DBUILD_TESTING=OFF', '-DWITH_EXAMPLES=OFF'],
+            provides=['libcbor-artifact']
+        ),
+        CMakeBuildArtifact('fido2', ['libcbor', 'zlib-artifact'], GitSource('https://github.com/Yubico/libfido2.git', 'main'),
+            ['-DBUILD_TESTS=OFF', '-DBUILD_MANPAGES=OFF'],
+            provides=['fido2-artifact']
+        ),
+    ]
+else:
+    fido2_pkgDeps = {
+        UBUNTU_LIKE: ['libcbor-dev', 'libfido2-dev'],
+        REDHAT_LIKE: ['libcbor-devel', 'libfido2-devel']
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('fido2-artifact', [], pkgs=fido2_pkgDeps),
+    ]

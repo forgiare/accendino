@@ -8,9 +8,10 @@
 #    handled options with prefix freerdp:
 #     * fromSources force build from sources
 #     * with_ffmpeg build with FFmpeg
+#     * with_fido2 build with webauthn support
 #     * with_openh264 build with OpenH264
 #     * with_sdl2 build with SDL2
-#     * with_sso-mib build with sso-mib support
+#     * with_sdl3 build with SDL3
 #
 
 include('zlib')
@@ -26,7 +27,8 @@ include('openh264')
 include('cairo')
 include('sdl2')
 include('sdl3')
-include('sso-mib')
+#include('sso-mib')
+include('fido2')
 
 freerdp_fromSources = getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
 
@@ -36,7 +38,7 @@ if freerdp_fromSources:
 
     freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
                   'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
-                  'libxml2-dev', 'libxrandr-dev', 'libxi-dev']
+                  'libxml2-dev', 'libxrandr-dev', 'libxi-dev', 'x11proto-scrnsaver-dev']
 
     freerdp_fedora_redhat_base = ['cups-devel', 'dbus-glib-devel', 'dbus-devel', 'systemd-devel',
       'libuuid-devel', 'pulseaudio-libs-devel', 'gcc-c++', 'libXrandr-devel', 'gsm-devel', 'gcc',
@@ -77,14 +79,11 @@ if freerdp_fromSources:
     else:
         FREERDP_opts.append('-DWITH_CAIRO=OFF')
 
-    if getOption('freerdp.with_sso-mib', False):
-        if targetDistribId not in ('Windows',):
-            freerdp3_opts.append('-DWITH_SSO_MIB=ON')
-            freerdp_deps.append('sso-mib-artifact')
+    #if getOption('freerdp.with_sso-mib', False):
+    #    if targetDistribId not in ('Windows',):
+    #        freerdp3_opts.append('-DWITH_SSO_MIB=ON')
+    #        freerdp_deps.append('sso-mib-artifact')
 
-    if getOption('freerdp.with_sdl3', True):
-        freerdp3_opts += ['-DWITH_CLIENT_SDL=ON', '-DWITH_CLIENT_SDL3=ON']
-        freerdp_deps += ['SDL3-artifact', 'SDL3_ttf-artifact', 'SDL_image-artifact']
 
     if targetDistribId in ('mingw',):
         FREERDP_opts += ['-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',
@@ -98,6 +97,15 @@ if freerdp_fromSources:
         freerdp_deps += ['SDL2-artifact', 'SDL2_image-artifact', 'SDL2_ttf-artifact']
     else:
         FREERDP_opts += ['-DWITH_SDL2=OFF']
+
+    if getOption('freerdp.with_sdl3', True):
+        freerdp3_opts += ['-DWITH_CLIENT_SDL=ON', '-DWITH_CLIENT_SDL3=ON', '-DWITH_SDL_LINK_SHARED=ON']
+        freerdp_deps += ['SDL3-artifact', 'SDL3_ttf-artifact', 'SDL3_image-artifact']
+
+    default_fido2 = targetDistribId not in ('mingw',)
+    if getOption('freerdp.with_fido2', default_fido2):
+        freerdp3_opts += ['-DCHANNEL_RDPEWA=ON', '-DCHANNEL_RDPEWA_CLIENT=ON']
+        freerdp_deps += ['fido2-artifact']
 
     if targetDistribId in ('Windows', 'mingw',):
         FREERDP_opts += ['-DWITH_SHADOW=OFF']
