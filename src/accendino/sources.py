@@ -97,7 +97,8 @@ class GitSource(Source):
 class RemoteArchiveSource(Source):
     ''' Code source that is checked out from a remote location '''
 
-    def __init__(self, url: str, saveAs: str = None, compression_method: str = 'guess') ->  None:
+    def __init__(self, url: str, saveAs: str = None, compression_method: str = 'guess', strip_depth: int = 0,
+                 checked_file: str = 'aclocal.m4') -> None:
         '''
             @param url: URL of the archive repo
         '''
@@ -116,14 +117,14 @@ class RemoteArchiveSource(Source):
             self.saveAs = saveAs
 
         knownCompressions = {
-            'tar.gz': (['tar', 'xzf'],
+            'tar.gz': (['tar', f'--strip-components={strip_depth}', '-xzf'],
                 {
                     'Ubuntu|Debian|Fedora|Redhat': ['tar', 'gzip'],
                     'Windows': ['choco/7z|path/7z']
                 },
 
             ),
-            'tar': (['tar', 'xf'],
+            'tar': (['tar', f'--strip-components={strip_depth}', '-xf'],
                 {
                     'Ubuntu|Debian|Fedora|Redhat': ['tar'],
                     'Windows': ['choco/7zip|path/7z']
@@ -145,6 +146,7 @@ class RemoteArchiveSource(Source):
 
         self.url = url
         self.compression = compression_method
+        self.checked_file = checked_file
 
         compProps = None
         if compression_method == 'guess':
@@ -193,6 +195,11 @@ class RemoteArchiveSource(Source):
 
 
     def checkout(self, target_dir, flog) -> bool:
+        checked_path = target_dir / self.checked_file
+        if os.path.exists(checked_path) and os.path.isfile(checked_path):
+            logging.debug(f'{self.checked_file} already exists meaning archive {self.saveAs} is already downloaded')
+            return True
+
         archiveDir = target_dir / '..' / '..' / 'archives'
         if not os.path.exists(archiveDir):
             os.makedirs(archiveDir, exist_ok=True)

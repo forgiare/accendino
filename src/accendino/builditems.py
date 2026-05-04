@@ -841,7 +841,7 @@ class MesonBuildArtifact(BuildArtifact):
         ]
 
         if config.crossCompilation:
-            cmd += ['--cross-file', config.getCrossPlatformFile('meson',  config.distribId, config.targetDistrib, config.targetArch)]
+            cmd += ['--cross-file', config.getCrossPlatformFile('meson', config.distribId, config.targetDistrib, config.targetArch)]
 
         if reconfigure:
             cmd += ["--reconfigure"]
