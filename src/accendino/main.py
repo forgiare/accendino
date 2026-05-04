@@ -237,6 +237,9 @@ class AccendinoConfig:
 
             return ret
 
+        def stdGitSourceFromOptions(key: str, url: str, tag: str = 'master'):
+            return GitSource(getOption(key + ".url", url), getOption(key + ".tag", tag))
+
 
         self.sources = []
         self.context = {
@@ -266,6 +269,7 @@ class AccendinoConfig:
             'UBUNTU_LIKE': 'Debian|Ubuntu',
             'REDHAT_LIKE': 'Fedora|Redhat',
             'checkAccendinoVersion': checkAccendinoVersionFn,
+            'stdGitSourceFromOptions': stdGitSourceFromOptions,
         }
 
     def findSourceFile(self, fname: str, include_once: bool = True) -> str:
