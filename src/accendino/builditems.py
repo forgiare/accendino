@@ -180,6 +180,13 @@ class BuildArtifact(DepsBuildArtifact):
 
         f.write('\n')
 
+    def _pushShellEnv(self, f, env: T.Dict[str, str], keys: T.List[str]) -> None:
+        f.write(f'# environment variables for artifact {self.name}\n')
+        for k in keys:
+            f.write(f"export {k}='{env[k]}'\n")
+
+        f.write('\n')
+
     def _createEnvFileWin32(self, env: T.Dict[str, str], keys: T.List[str]) -> None:
         with open(self.buildDir / 'setEnv.ps1', 'wt', encoding='utf8') as f:
             self._pushPowerShellEnv(f, env, keys)
@@ -190,9 +197,9 @@ class BuildArtifact(DepsBuildArtifact):
                 v = str(v)
 
             if k == 'PATH':
-                self._updatePATHlike(config, base, 'PATH', v.split(os.pathsep), sep=os.pathsep)
-            elif k == 'PKG_CONFIG_PATH':
-                self._updatePATHlike(config, base, 'PKG_CONFIG_PATH', v.split(':'))
+                self._updatePATHlike(config, base, k, v.split(os.pathsep), sep=os.pathsep)
+            elif k in ('PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR',):
+                self._updatePATHlike(config, base, k, v.split(':'))
             else:
                 base[k] = v
 
@@ -212,15 +219,18 @@ class BuildArtifact(DepsBuildArtifact):
                 xkeys += toolchainEnv.keys()
 
         # add a PKG_CONFIG_PATH
-        xkeys.append('PKG_CONFIG_PATH')
-        pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig'
+        xkeys.append('PKG_CONFIG_LIBDIR')
+        pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig:{prefix_posix}/share/pkgconfig'
 
         archLibDir = getArchLibDir(config.targetDistrib, config.targetArch)
         if archLibDir:
             pkg_config_path += ':{prefix_posix}/{libdir}/' + archLibDir + '/pkgconfig'
+            pkg_config_path += f':/usr/lib/{archLibDir}/pkgconfig'
+
+        pkg_config_path += ':/usr/share/pkgconfig'
 
         xx = {
-            'PKG_CONFIG_PATH': pkg_config_path,
+            'PKG_CONFIG_LIBDIR': pkg_config_path,
         }
 
         # adds the target bin directory to the PATH
@@ -322,9 +332,12 @@ class BuildArtifact(DepsBuildArtifact):
 
         return True
 
-    def _createPrepareFileUnix(self, config, _env, _xkeys) -> None:
+    def _createPrepareFileUnix(self, config, env, xkeys) -> None:
         with open(self.buildDir / "prepare.sh", "wt", encoding='utf8') as f:
             f.write(f'# prepare commands for artifact {self.name}\n\n')
+
+            self._pushShellEnv(f, env, xkeys)
+
             lastDir = None
             for cmd, path, cmddoc in self.prepare_cmds:
                 f.write(f'# {cmddoc}\n')
@@ -759,7 +772,7 @@ class MesonBuildArtifact(BuildArtifact):
     ''' meson + ninja based build item '''
 
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True,
-                 toolchainArtifacts='c') -> None:
+                 toolchainArtifacts='c', mesonVersion: str = 'system') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -770,22 +783,59 @@ class MesonBuildArtifact(BuildArtifact):
             @param mesonOpts:
             @param parallelJobs:
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param mesonVersion: the meson version to use
         '''
         extra = {
-            'Ubuntu|Debian|Redhat|Fedora': ['meson', 'ninja-build'],
-            'Arch|FreeBSD|Darwin': ['meson', 'ninja'],
+            'Ubuntu|Debian|Redhat|Fedora': ['ninja-build'],
+            'Arch|FreeBSD|Darwin': ['ninja'],
         }
-        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['meson', 'ninja-build'], extra)
+
+        mingwCrossDeps = ['ninja-build']
+
+        if mesonVersion == 'system':
+            extra['Ubuntu|Debian|Redhat|Fedora'].append('meson')
+            extra['Arch|FreeBSD|Darwin'].append('meson')
+
+            mingwCrossDeps.append('meson')
+
+        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], mingwCrossDeps, extra)
 
         pkgs = mergePkgDeps(pkgs, extra)
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
         self.mesonOpts = mesonOpts
         self.parallelJobs = parallelJobs
+        self.mesonVersion = mesonVersion
+        self.mesonPath = 'meson'
+
+    def init(self, config) -> bool:
+        if not BuildArtifact.init(self, config):
+            return False
+
+        if self.mesonVersion == 'system':
+            return True
+
+        mesonRootDir = config.toolsDir / f'meson-{self.mesonVersion}'
+
+        self.mesonPath = mesonRootDir / 'bin' / 'meson'
+        if os.path.exists(mesonRootDir) and os.path.exists(self.mesonPath):
+            logging.debug(f"meson {self.mesonVersion} already installed")
+            return True
+
+        mesonVersionString = 'meson'
+        if self.mesonVersion != 'latest':
+            mesonVersionString = f'meson=={self.mesonVersion}'
+
+        env = os.environ.copy()
+        cmds = [
+            (['python', '-m', 'venv', mesonRootDir], '.', f'creating venv for {mesonVersionString}'),
+            ([mesonRootDir / 'bin' / 'pip', 'install', mesonVersionString], '.', f'installing {mesonVersionString}'),
+        ]
+        return self.runCommands(cmds, env, config)
 
     def prepare(self, config) -> bool:
         reconfigure = os.path.exists(self.buildDir / 'meson-info')
 
-        cmd = ['meson', 'setup',
+        cmd = [self.mesonPath, 'setup',
                '-Dprefix={prefix}',
                f'-Dbuildtype={config.mesonBuildType()}',
         ]
@@ -811,8 +861,8 @@ class MesonBuildArtifact(BuildArtifact):
             concurrentArgs = ['-j', f'{maxJobs}']
 
         self.build_cmds = [
-            (['meson', 'compile'] + concurrentArgs, '{builddir}', 'building'),
-            (['meson', 'install'], '{builddir}', 'installing'),
+            ([self.mesonPath, 'compile'] + concurrentArgs, '{builddir}', 'building'),
+            ([self.mesonPath, 'install'], '{builddir}', 'installing'),
         ]
 
         return BuildArtifact.prepare(self, config)
