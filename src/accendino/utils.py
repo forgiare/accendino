@@ -48,6 +48,17 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
     op = tokens[0]
     operSys = tokens[1]
 
+    if len(tokens) > 2:
+        pos = tokens[2].find('.')
+        if pos == -1:
+            # no minor number to compare, that's the case with cond='>= Ubuntu 24', so let's truncate
+            # distribVersion
+
+            pos = distribVersion.find('.')
+            if pos != -1:
+                distribVersion = distribVersion[0:pos]
+
+
     if op in ('=', '==',):
         if distribId != operSys:
             return False
@@ -73,6 +84,7 @@ def checkVersionCondition(cond: str, distribId: str, distribVersion: str) -> boo
         return False
 
     version = tokens[2]
+
     if op == '<':
         return distribVersion < version
 
