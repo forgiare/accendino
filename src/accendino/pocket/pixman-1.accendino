@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building pixman-1
+#
+pixman_fromSources = stdBuildFromSourceTest('pixman', locals(), False)
+if pixman_fromSources:
+    pixman_pkgDeps = {
+        #UBUNTU_LIKE: ['libxcb-xkb-dev'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('pixman', [],
+            stdGitSourceFromOptions('pixman', 'https://gitlab.freedesktop.org/pixman/pixman.git', 'master'),
+            mesonOpts=[],
+            pkgs=pixman_pkgDeps,
+            provides=['pixman-artifact'],
+        ),
+    ]
+
+else:
+    pixman_pkgDeps = {
+        UBUNTU_LIKE: ['libpixman-1-dev'],
+        REDHAT_LIKE: ['pixman-1-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('pixman-artifact', [], pkgs=pixman_pkgDeps)
+    ]
+

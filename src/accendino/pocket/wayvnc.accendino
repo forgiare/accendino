@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building Andri's Main Loop library
+#
+include('aml')
+include('neatvnc')
+include('ffmpeg')
+include('wlroots')
+
+
+wayvnc_fromSources = stdBuildFromSourceTest('wayvnc', locals(), False)
+if wayvnc_fromSources:
+    wayvnc_pkgDeps = {
+        UBUNTU_LIKE: ['libjansson-dev', 'libpam0g-dev', 'libgnutls28-dev', 'libturbojpeg0-dev', 'scdoc'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('wayvnc', ['aml-artifact', 'neatvnc-artifact', 'ffmpeg-artifact', 'wlroots-artifact'],
+            stdGitSourceFromOptions('wayvnc', 'https://github.com/any1/wayvnc.git', 'master'),
+            mesonOpts=['-Dtests=false'],
+            pkgs=wayvnc_pkgDeps,
+            provides=['wayvnc-artifact']
+        ),
+    ]
+
+else:
+    wayvnc_pkgDeps = {
+        UBUNTU_LIKE: ['wayvnc'],
+        REDHAT_LIKE: ['wayvnc-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('wayvnc-artifact', [], pkgs=wayvnc_pkgDeps)
+    ]

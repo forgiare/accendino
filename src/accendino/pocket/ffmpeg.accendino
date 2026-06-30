@@ -18,10 +18,8 @@ ffmpeg_pkgDeps = {
     REDHAT_LIKE: ['libavcodec-free-devel', 'libswscale-free-devel'],
     'FreeBSD': ['ffmpeg'],
 }
-ffmpeg_fromSources = False
 
-if targetDistribId in ('mingw', 'Windows', 'Darwin',):
-    ffmpeg_fromSources = True
+ffmpeg_fromSources = 'ffmpeg_forceBuild' in globals() or getOption('ffmpeg.fromSources', targetDistribId in ('mingw', 'Windows', 'Darwin',))
 
 if ffmpeg_fromSources:
     ffmpegExtraArgs = []
@@ -77,7 +75,7 @@ if ffmpeg_fromSources:
 
     ARTIFACTS += [
         CustomCommandBuildArtifact('ffmpeg', ffmpegDeps,
-            GitSource('https://github.com/FFmpeg/FFmpeg.git', 'n7.1.2'),
+            stdGitSourceFromOptions('ffmpeg', 'https://github.com/FFmpeg/FFmpeg.git', 'n7.1.2'),
             prepare_cmds=[
                 RunInShell([configureCmd, '--prefix={prefix_msys2}', '--disable-doc', '--disable-programs', '--disable-securetransport'] + ffmpegExtraArgs),
             ],

@@ -28,7 +28,7 @@ if targetDistribId == 'Windows':
 if cairo_fromSources:
     ARTIFACTS += [
         MesonBuildArtifact('cairo', ['zlib-artifact'],
-            GitSource('https://gitlab.freedesktop.org/cairo/cairo.git', '1.18.4'),
+            stdGitSourceFromOptions('cairo', 'https://gitlab.freedesktop.org/cairo/cairo.git', '1.18.4'),
             mesonOpts=['-Dtests=disabled'],
             provides=['cairo-artifact']
         ),

@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building Andri's Main Loop library
+#
+include('aml')
+
+neatvnc_fromSources = getOption('neatvnc.fromSources', False)
+if neatvnc_fromSources:
+    ARTIFACTS += [
+        MesonBuildArtifact('neatvnc', ['aml-artifact'],
+            stdGitSourceFromOptions('neatvnc', 'http://github.com/any1/neatvnc', 'master'),
+            mesonOpts=['-Dexamples=false', '-Dtests=false'],
+            provides=['neatvnc-artifact']
+        ),
+    ]
+
+else:
+    neatvnc_pkgDeps = {
+        UBUNTU_LIKE: ['libneatvnc-dev'],
+        REDHAT_LIKE: ['neatvnc-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('neat-artifact', [], pkgs=neatvnc_pkgDeps)
+    ]

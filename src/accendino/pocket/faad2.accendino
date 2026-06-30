@@ -16,7 +16,7 @@ faad2_fromSources = getOption('faad2.fromSources', targetDistribId not in ('Ubun
 if faad2_fromSources:
     ARTIFACTS += [
         CMakeBuildArtifact('faad2', [],
-            GitSource('https://github.com/knik0/faad2.git', '2.11.2'),
+            stdGitSourceFromOptions('faad2', 'https://github.com/knik0/faad2.git', '2.11.2'),
             provides=['faad2-artifact']
         ),
     ]

@@ -13,7 +13,7 @@ import accendino
 from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuildArtifact, DepsBuildArtifact, \
     MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact
 from accendino.localdeps import getPkgManager
-from accendino.sources import LocalSource, GitSource, RemoteArchiveSource
+from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Source
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath, RunInShell, mergePkgDeps, is_exact_instance
 from accendino.toolchain import getToolchain
@@ -221,7 +221,7 @@ class AccendinoConfig:
             if len(tokens) == 2:
                 (section, name) = tokens
             else:
-                section = configparser.UNNAMED_SECTION
+                section = configparser.DEFAULTSECT
                 name = optName
 
             if not section in self.options.sections():
@@ -237,9 +237,15 @@ class AccendinoConfig:
 
             return ret
 
-        def stdGitSourceFromOptions(key: str, url: str, tag: str = 'master'):
-            return GitSource(getOption(key + ".url", url), getOption(key + ".tag", tag))
+        def stdGitSourceFromOptions(key: str, url: str, tag: str = 'master') -> Source:
+            return GitSource(getOption(f'{key}.url', url), getOption(f'{key}.tag', tag))
 
+        def stdBuildFromSourceTest(key: str, lokals, default_option: bool) -> bool:
+            force_key = f'{key}_forceBuild'
+            if force_key in lokals and lokals[force_key]:
+                return True
+
+            return getOption(f'{key}.fromSources', default_option)
 
         self.sources = []
         self.context = {
@@ -270,6 +276,7 @@ class AccendinoConfig:
             'REDHAT_LIKE': 'Fedora|Redhat',
             'checkAccendinoVersion': checkAccendinoVersionFn,
             'stdGitSourceFromOptions': stdGitSourceFromOptions,
+            'stdBuildFromSourceTest': stdBuildFromSourceTest,
         }
 
     def findSourceFile(self, fname: str, include_once: bool = True) -> str:

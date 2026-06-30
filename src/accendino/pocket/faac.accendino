@@ -27,7 +27,7 @@ if faac_fromSources:
     ARTIFACTS += [
          MesonBuildArtifact('faac', [],
             # Faac 1.31.1 with my meson build addings, waiting for a release to also ship meson files
-            GitSource('https://github.com/hardening/faac.git', 'meson'),
+            stdGitSourceFromOptions('faac', 'https://github.com/hardening/faac.git', 'meson'),
             mesonOpts=['-Dfrontend=false'],
             provides=['faac-artifact'],
         )

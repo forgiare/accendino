@@ -27,12 +27,13 @@ if targetDistribId in ('Windows', 'Darwin',):
 
 if uriparser_fromSources:
     opts = ['-DURIPARSER_BUILD_DOCS=OFF', '-DURIPARSER_BUILD_TESTS=OFF', '-DURIPARSER_BUILD_TOOLS=OFF']
+    uriparser_src = stdGitSourceFromOptions('uriparser', 'https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8')
     ARTIFACTS += [
-        CMakeBuildArtifact('uriparser', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
+        CMakeBuildArtifact('uriparser', [], uriparser_src,
             cmakeOpts=opts, provides='uriparser-artifact'
         ),
 
-        CMakeBuildArtifact('uriparser-static', [], GitSource('https://github.com/uriparser/uriparser.git', 'uriparser-0.9.8'),
+        CMakeBuildArtifact('uriparser-static', [], uriparser_src,
             cmakeOpts=opts + ['-DBUILD_SHARED_LIBS=OFF']
         ),
     ]

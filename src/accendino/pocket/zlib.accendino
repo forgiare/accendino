@@ -11,7 +11,7 @@ zlib_pkgDeps = {
     REDHAT_LIKE: ['zlib-ng-devel'],
 }
 
-zlib_fromSources = getOption('zlib.fromSources', False)
+zlib_fromSources = stdBuildFromSourceTest('zlib', locals(), False)
 
 if targetDistribId == 'mingw':
     # Checks for some existing distribution packets
@@ -21,6 +21,7 @@ if targetDistribId == 'mingw':
             'Fedora->mingw@x86_64': ['mingw64-zlib'],
             'Ubuntu->mingw@x86_64': ['libz-mingw-w64-dev'],
         })
+        zlib_fromSources = False
     else:
         zlib_fromSources = True
 
@@ -28,9 +29,9 @@ if targetDistribId == 'Windows':
     zlib_fromSources = True
 
 if zlib_fromSources:
-    gzip_src = GitSource('https://github.com/madler/zlib.git', 'v1.3.1.2')
+    zlib_src = stdGitSourceFromOptions('zlib', 'https://github.com/madler/zlib.git', 'v1.3.1.2')
     ARTIFACTS += [
-        CMakeBuildArtifact('zlib', [], gzip_src,
+        CMakeBuildArtifact('zlib', [], zlib_src,
             cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
         ),
         CMakeBuildArtifact('zlib-static', [], gzip_src,
