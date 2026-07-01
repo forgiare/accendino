@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building stduuid
+#
+
+stduuid_fromSources = stdBuildFromSourceTest('stduuid', locals(), True)
+
+if stduuid_fromSources:
+    stduuid_src = stdGitSourceFromOptions('stduuid', 'https://github.com/mariusbancila/stduuid.git', 'master')
+    stduuid_options = ['-DUUID_BUILD_TESTS=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('stduuid', [], stduuid_src,
+            cmakeOpts=stduuid_options,
+            provides=['stduuid-artifact']
+        ),
+    ]

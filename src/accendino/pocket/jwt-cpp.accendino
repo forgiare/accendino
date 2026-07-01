@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building jwt-cpp
+#
+
+jwt_cpp_fromSources = stdBuildFromSourceTest('jwt_cpp', locals(), True)
+
+if jwt_cpp_fromSources:
+    jwt_cpp_src = stdGitSourceFromOptions('jwt_cpp', 'https://github.com/Thalhammer/jwt-cpp.git', 'master')
+    jwt_cpp_options = ['-DJWT_BUILD_EXAMPLES=OFF', '-DJWT_BUILD_TESTS=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('jwt-cpp', [], jwt_cpp_src,
+            cmakeOpts=jwt_cpp_options,
+            provides=['jwt_cpp-artifact'], toolchainArtifacts='c++'
+        ),
+    ]
