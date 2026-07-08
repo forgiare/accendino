@@ -12,6 +12,7 @@
 #     * with_openh264 build with OpenH264
 #     * with_sdl2 build with SDL2
 #     * with_sdl3 build with SDL3
+#     * with_yuv build libyuv
 #
 
 include('zlib')
@@ -29,8 +30,9 @@ include('sdl2')
 include('sdl3')
 #include('sso-mib')
 include('fido2')
+include('libyuv')
 
-freerdp_fromSources = getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
+freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
 
 
 if freerdp_fromSources:
@@ -83,6 +85,12 @@ if freerdp_fromSources:
     #    if targetDistribId not in ('Windows',):
     #        freerdp3_opts.append('-DWITH_SSO_MIB=ON')
     #        freerdp_deps.append('sso-mib-artifact')
+
+    if getOption('freerdp.with_libyuv', True):
+        freerdp_deps.append('libyuv-artifact')
+        FREERDP_opts.append('-DWITH_YUV=ON')
+    else:
+        FREERDP_opts.append('-DWITH_YUV=OFF')
 
 
     if targetDistribId in ('mingw',):

@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libyuv
+#
+
+libyuv_fromSources = stdBuildFromSourceTest('libyuv', locals(), False)
+
+if libyuv_fromSources:
+    libyuv_src = stdGitSourceFromOptions('libyuv', 'https://chromium.googlesource.com/libyuv/libyuv', 'master')
+    libyuv_options = ['-DUNIT_TEST=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('libyuv', [], libyuv_src,
+            cmakeOpts=libyuv_options,
+            provides=['libyuv-artifact']
+        ),
+        CMakeBuildArtifact('libyuv-static', [], libyuv_src,
+            cmakeOpts=libyuv_options + ['-DBUILD_SHARED_LIBS=OFF'],
+            provides=['libyuv-artifact']
+        ),
+    ]
+
+else:
+    libyuv_pkgDeps = {
+        UBUNTU_LIKE: ['libyuv-dev'],
+        REDHAT_LIKE: ['libyuv-devel'],
+    }
+    ARTIFACTS += [
+        DepsBuildArtifact('libyuv-artifact', [], pkgs=libyuv_pkgDeps)
+    ]
