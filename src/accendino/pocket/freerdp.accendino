@@ -36,7 +36,7 @@ freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fro
 
 
 if freerdp_fromSources:
-    FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF']
+    FREERDP_opts=['-DWITH_GSTREAMER_1_0=OFF', '-DWITH_SERVER=ON']
 
     freerdp_ubuntu_debian_common = ['xsltproc', 'libx11-dev', 'libxext-dev', 'libxinerama-dev', 'libxcursor-dev',
                   'libxdamage-dev', 'libxv-dev', 'libxkbfile-dev', 'libasound2-dev', 'libcups2-dev', 'libxml2',
@@ -134,39 +134,30 @@ if freerdp_fromSources:
             staticStr = "-static"
             provides.append('freerdp-static')
 
-        for clientOnly in (True, False,):
-            clientStr = ""
-            clientOnlyOptions = []
-            if clientOnly:
-                clientOnlyOptions = ['-DWITH_SERVER=OFF']
-                clientStr = "-clientOnly"
-            else:
-                clientOnlyOptions = ['-DWITH_SERVER=ON']
+        options = staticOptions + FREERDP_opts
+        ARTIFACTS += [
+            CMakeBuildArtifact(f'freerdp2{staticStr}', freerdp_deps,
+                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
+                options,
+                provides=provides + ['freerdp2-artifact'],
+                pkgs = {
+                    REDHAT_LIKE: freerdp_fedora_redhat_base,
+                    UBUNTU_LIKE: freerdp_ubuntu_debian_common
+                },
+                toolchainArtifacts='c,c++'
+            ),
 
-            options = staticOptions + clientOnlyOptions + FREERDP_opts
-            ARTIFACTS += [
-                CMakeBuildArtifact(f'freerdp2{clientStr}{staticStr}', freerdp_deps,
-                    GitSource('https://github.com/FreeRDP/FreeRDP.git', 'stable-2.0'),
-                    options,
-                    provides=provides + ['freerdp2-artifact'],
-                    pkgs = {
-                        REDHAT_LIKE: freerdp_fedora_redhat_base,
-                        UBUNTU_LIKE: freerdp_ubuntu_debian_common
-                    },
-                    toolchainArtifacts='c,c++'
-                ),
-
-                CMakeBuildArtifact(f'freerdp3{clientStr}{staticStr}', freerdp_deps,
-                    GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
-                    options + freerdp3_opts + freerdp_ffmpeg_opts,
-                    provides=provides + ['freerdp3-artifact'],
-                    pkgs = {
-                        REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
-                        UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev', 'libkrb5-dev'],
-                    },
-                    toolchainArtifacts='c,c++'
-                ),
-            ]
+            CMakeBuildArtifact(f'freerdp3{staticStr}', freerdp_deps,
+                GitSource('https://github.com/FreeRDP/FreeRDP.git', 'master'),
+                options + freerdp3_opts + freerdp_ffmpeg_opts,
+                provides=provides + ['freerdp3-artifact'],
+                pkgs = {
+                    REDHAT_LIKE: freerdp_fedora_redhat_base + ['fuse3-devel'],
+                    UBUNTU_LIKE: freerdp_ubuntu_debian_common + ['libfuse3-dev', 'libkrb5-dev'],
+                },
+                toolchainArtifacts='c,c++'
+            ),
+        ]
 else:
     freerdp2_pkgDeps = {
         'Ubuntu': ['freerdp2-dev']

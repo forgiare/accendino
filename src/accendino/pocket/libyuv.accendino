@@ -6,10 +6,10 @@
 #    Detecting or building libyuv
 #
 
-libyuv_fromSources = stdBuildFromSourceTest('libyuv', locals(), False)
+libyuv_fromSources = stdBuildFromSourceTest('libyuv', locals(), targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',))
 
 if libyuv_fromSources:
-    libyuv_src = stdGitSourceFromOptions('libyuv', 'https://chromium.googlesource.com/libyuv/libyuv', 'master')
+    libyuv_src = stdGitSourceFromOptions('libyuv', 'https://chromium.googlesource.com/libyuv/libyuv', 'main')
     libyuv_options = ['-DUNIT_TEST=OFF']
     ARTIFACTS += [
         CMakeBuildArtifact('libyuv', [], libyuv_src,

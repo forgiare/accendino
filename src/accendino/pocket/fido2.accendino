@@ -39,5 +39,5 @@ else:
     }
 
     ARTIFACTS += [
-        DepsBuildArtifact('fido2-artifact', [], pkgs=fido2_pkgDeps),
+        DepsBuildArtifact('fido2-artifact', ['libcbor-artifact', 'zlib-artifact'], pkgs=fido2_pkgDeps),
     ]
