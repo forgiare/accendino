@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building wlroots
+#
+include('wayland')
+
+# needs >= 1.47
+if checkDistrib('<= Ubuntu 24'):
+    wayland_protocols_forceBuild=True
+include('wayland-protocols')
+
+# needs >= 2.4.129
+if checkDistrib('<= Ubuntu 24'):
+    libdrm_forceBuild=True
+include('libdrm')
+
+# needs >= 1.8.0
+if checkDistrib('<= Ubuntu 24'):
+    xkbcommon_forceBuild=True
+include('xkbcommon')
+
+# needs >= 0.43.0
+if checkDistrib('<= Ubuntu 24'):
+    pixman_forceBuild=True
+include('pixman-1')
+
+wlroots_fromSources = stdBuildFromSourceTest('wlroots', locals(), False)
+if wlroots_fromSources:
+    wlroots_pkgDeps = {
+        # UBUNTU_LIKE: ['libdrm-dev', 'libxkbcommon-dev'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('wlroots', ['wayland-artifact', 'libdrm-artifact', 'xkbcommon-artifact', 'pixman-artifact', 'wayland-protocols-artifact'],
+            stdGitSourceFromOptions('wlroots', 'https://gitlab.freedesktop.org/wlroots/wlroots.git', 'master'),
+            mesonOpts=['-Dexamples=false', '-Dtests=false'],
+            pkgs=wlroots_pkgDeps,
+            provides=['wlroots-artifact']
+        ),
+    ]
+
+else:
+    wlroots_pkgDeps = {
+        UBUNTU_LIKE: ['libwlroots-dev'],
+        REDHAT_LIKE: ['wlroots-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('wlroots-artifact', [], pkgs=wlroots_pkgDeps)
+    ]

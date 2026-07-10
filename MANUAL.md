@@ -59,8 +59,8 @@ build-type=debug
 
 Otherwise the conventions in _Accendino_ files are:
 
-* to have a section per built item and provide options there;
-* the `fromSources` options forces this artifact to be built from sources instead of using platform packages;
+* to have a section per built item and provide options there
+* the `fromSources` options forces this artifact to be built from sources instead of using platform packages
 
 For instance with this file:
 ```ini
@@ -82,9 +82,9 @@ file give an example of such capacity, it will substitute the official _ogon_ re
 
 _Accendino_ reads a source file and interprets it as a python file and when done it will search for these variables:
 
-* `DEFAULT_TARGETS : str` : contains the default build artifacts to build when no target is given on the command line (coma separated string);
-* `ARTIFACTS : List[Any]` : contains a list of build artifacts;
-* `PROJECT : str` : an optional project name, it allows to store all the build items (sources and binaries) in a specific directory. Like the `--project` command line argument;
+* `DEFAULT_TARGETS : str` : contains the default build artifacts to build when no target is given on the command line (coma separated string)
+* `ARTIFACTS : List[Any]` : contains a list of build artifacts
+* `PROJECT : str` : an optional project name, it allows to store all the build items (sources and binaries) in a specific directory. Like the `--project` command line argument
 * `CROSS_PLATFORM_FILE_CHOOSER : Callable` : a function with the signature `(builder: str, localDistrib : str, distrib : str, arch: str) -> str`, that aims to return the path for
      a cross compilation file for the given `builder` (can be `cmake` or `meson` for now) and the given arch. If not specified it contains a default function that
      will work for `mingw[32|64]` builds
@@ -122,25 +122,38 @@ Some examples:
 
 ### Functions
 
+* `stdGitSourceFromOptions(key: str, url: str, tag: str = 'master') -> Source`: creates a `GitSource` by looking at options ini file in the `key`
+    section for `url` and `tag` keys, and otherwise use the provided ones in `url` and `tag`. That allows to give a default location for the Git source
+    that can be overriden by the option ini file. For instance with this option file:
+    ```
+    [toto]
+    url=https://mygit.selfhosted.com/toto.git
+    tag=specialTag
+    ```
+    and `stdGitSourceFromOptions('toto', 'https://git.toto.org/toto/git', 'master')`, you'll get a git source from your repo and on your tag;
+* `stdBuildFromSourceTest(key: str, lokals, default_option: bool) -> bool`: returns if an artifact should built from sources. For that this function
+    first look in the local variables provided in `lokals` and look for `key + '_forceBuild'` and see if it's true. That allows an accendino file to set a 
+    `wayland_forceBuild` variable that will be caught in `wayland.accendino` to force a build from sources. The function then look at a `fromSources` key in the
+    option ini file in the section `key`;
 * `checkAccendinoVersion(cond: str) -> bool`: checks if you're running on a given _Accendino_ version. The condition is something like `<op> <version>` with `op`
-    than can be `=`, `==`, `!`, `!=`, `<`, `<=`, `>` or `>=`. And `version` is the version string with 3 digits. For example: `cond='>= 0.5.1'`
+    than can be `=`, `==`, `!`, `!=`, `<`, `<=`, `>` or `>=`. And `version` is the version string with 3 digits. For example: `cond='>= 0.5.1'`;
 * `checkDistrib(cond : str) -> bool`: checks if the current distribution matches the [platform version condition](#platform-version-condition)
-    given in `cond`
+    given in `cond`;
 * `getOption(opt: str, defaultValue) -> bool|str`: look for a build option in the build option file. The format for `opt` is `<section>.<variable>` so for instance
   `ffmpeg.fromSources` will look in the `ffmpeg` section of the INI file and will look for the `fromSources` variable. If the variable or the section are missing the
-  default value is returned
+  default value is returned;
 * `include(name : str, include_once: bool = True) -> bool`: allows to include another _Accendino_ source file. _Accendino_ will search for this file in the following
     locations: `.`, `pocket`, paths given in the `ACCENDINO_PATH` env variable, and finally in the pockets directory of _Accendino_. If `include_once` is set to `True`
-    the file is just included once
+    the file is just included once;
 * `pickDeps(name : str) -> List[str]`: returns a copy of the artifact dependencies of the build artifact named `name`.
-    This is useful if you define a build artifact that is just the variant of another one
+    This is useful if you define a build artifact that is just the variant of another one;
 * `pickPkgDeps(name : str, extra = None, override : bool = False) -> Dict[str, List[str]]`: returns a copy
     of the package dependencies of the `name` build artifact. `extra` packages definitions are added to the result.
     `override` is true, the extra entries overrides the existing values instead of being added .For instance with
     `source deps={'Fedora': ['pack1'], 'Ubuntu': ['pack2'] }` and `extra={'Ubuntu': ['pack3']}` with `override=True`
     you have `{'Fedora': ['pack1'], 'Ubuntu': ['pack3'] }`).
     With `override=False`(the default) you have `{'Fedora': ['pack1'], 'Ubuntu': ['pack2', 'pack3'] }`). This is useful if you define a build
-    artifact that is just the variant of another one
+    artifact that is just the variant of another one;
 
 ### Objects
 
@@ -150,23 +163,27 @@ Some examples:
     For example, `DepsAdjuster('< Debian 11.00', add=['pkg1'])` will add `pkg1` as dependency if we're building under a Debian with a version before `11.00`. `DepsAdjuster` can be
     used for build artifacts dependencies or for platform packages. The common cases are: on all Ubuntu version you need the same platform packages except that the package is renamed starting at
     a given version. Another common case is build artifact dependencies, where a platform lib is not available after a given Ubuntu version and you need to build it by hand and so add a build artifact
-    dependency
-* `logging`: an export of the `zenlog` module. You can use it to log your messages with for instance `logging.debug('hello from the accendino file')`
+    dependency;
+* `logging`: an export of the `zenlog` module. You can use it to log your messages with for instance `logging.debug('hello from the accendino file')`;
 * `NativePath(*args, **kwargs)`: an object representing a native path (with `\` under windows or `/` under posix). `args` are the path components of the path
     If needed you can ship `prefix=<prefix>` or `suffix=<suffix>`, these strings are added before or after the generated path. For instance
     `NativePath('{srcdir}', 'toto', 'bin', prefix='--mypath=', suffix='-after')` will generate `--mypath={srcdir}/toto/bin-after` under posix or
     `--mypath={srcdir}\toto\bin-after` under windows. This is very usefull if you need to pass a path to a tool that must be in native path notation.
 * `RunInShell(args: T.list)`: notify that the given command shall always be run on a real shell so either the regular shell under unix, or the msys2   
-    shell under windows
+    shell under windows;
 
 
 ### Sources
 
 `Source` objects are invoked to checkout your code, we have these available:
 
-* `GitSource(url: str, branch: str, depth: int = 1, shallow_submodules: bool = False, recurse_submodules: bool = False)` : a source that checks out the code from `git`. Parameters mimick the `git` command line arguments;
-* `LocalSource(srcdir : str, do_symlink : bool = False)` : a source that uses code stored in a local directory. If `do_symlink` is true, the code is just symlinked in the _Accendino_ sources directory, otherwise the whole source tree is copied
-* `RemoteArchiveSource(url: str, saveAs: str = None, compression_method: str = 'guess')`: sources contained in a remote archive. The archive will be downloaded and then decompressed
+* `GitSource(url: str, branch: str, depth: int = 1, shallow_submodules: bool = False, recurse_submodules: bool = False)` : a source that checks out the code from `git`.
+    Parameters mimick the `git` command line arguments;
+* `LocalSource(srcdir : str, do_symlink : bool = False)` : a source that uses code stored in a local directory. If `do_symlink` is true, the code is just symlinked
+    in the _Accendino_ sources directory, otherwise the whole source tree is copied;
+* `RemoteArchiveSource(url: str, saveAs: str = None, compression_method: str = 'guess', strip_depth: int = 0, checked_file: str = 'aclocal.m4)`: sources
+    contained in a remote archive. The archive will be downloaded and then decompressed. `strip_depth` allows to strip the version directory if any (like if the archive expands
+    to `libressl-1.4.2/...`);
 
 ### Platform packages dependencies
 Platform packages dependencies are expressed as a `dict` with the key that is the target distribution. It takes in account
@@ -186,8 +203,8 @@ Here's some examples for the key:
 
 Here's some full examples:
 * `'Ubuntu|Debian': ['libprotobuf-c-dev', DepsAdjuster('>= Ubuntu 22.04|>= Debian 12.00', add=['thrift-compiler', 'libthrift-dev'])]` always require the `libprotobuf-c-dev` when
-    under Ubuntu or Debian. If we're on a Ubuntu greater or equal to 22.04 or a Debian greater or equal to 12, then also require `thrift-compiler` and `libthrift-dev`
-* `'Fedora->mingw@x86_64': ['mingw64-zlib']` when cross compiling on Fedora to mingw64, require the mingw64-zlib rpm package
+    under Ubuntu or Debian. If we're on a Ubuntu greater or equal to 22.04 or a Debian greater or equal to 12, then also require `thrift-compiler` and `libthrift-dev`;
+* `'Fedora->mingw@x86_64': ['mingw64-zlib']` when cross compiling on Fedora to mingw64, require the mingw64-zlib rpm package;
 
 The Windows platform has a special format for package names that is `<packageType>/<packageName>`. packageType can be:
 * `choco`: search for packages handles with Chocolatey
@@ -206,13 +223,13 @@ You can also use alternative installations using the `|` separator and give this
 
 All build artifacts share the same parameters:
 
-* `name : str`: name of this artifact
-* `deps : List[str]`: a list of the name of build artifacts that this artifact depends on for the build
-* `srcObj : accendino.sources.Source`: a [`accendino.sources.Source`](#sources) object that will checkout your sources
-* `provides : List[str] | str`: a list of build artifacts that this artifact provides. For instance you can have a `freerdp2` artifact that provides `freerdp`
-* `pkgs : Dict[str, List[str]]`: a dictionary of platform packages dependencies, see the [previous paragraph](#platform-packages-dependencies) for the syntax of this dictionary
+* `name : str`: name of this artifact;
+* `deps : List[str]`: a list of the name of build artifacts that this artifact depends on for the build;
+* `srcObj : accendino.sources.Source`: a [`accendino.sources.Source`](#sources) object that will checkout your sources;
+* `provides : List[str] | str`: a list of build artifacts that this artifact provides. For instance you can have a `freerdp2` artifact that provides `freerdp`;
+* `pkgs : Dict[str, List[str]]`: a dictionary of platform packages dependencies, see the [previous paragraph](#platform-packages-dependencies) for the syntax of this dictionary;
 * `toolchainArtifacts = 'c'`: a list or a coma separated string of toolchain artificats that you are needed by this build item. Usual values argument
- `c` or `c++`, it will be used to add package requirements
+ `c` or `c++`, it will be used to add package requirements;
 
 
 When giving commands, you can use these format string they will be replaced by their respective values:

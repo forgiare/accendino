@@ -1,5 +1,32 @@
 # _Accendino_ changelog
 
+## 0.6.1
+
+* added accendino files for `spdlog`, `stduuid`, `redis++`, `nlohmann/json`, `jwt-cpp`, `cpr`, `libressl` and `libyuv`
+* added accendino files for wayvnc and its deps: `aml`, `libdrm`, `neatvnc`, `pixman-1`, `wayland`, `wayland-protocols`, `wlroots`, `xkbcommon`, `wayvnc`
+* fixed version comparison
+* `RemoteArchiveSource` now supports stripping the top-level directory from archives
+* added `stdGitSourceFromOptions` as a shortcut function for accendino files
+* fixed pkgconfig path handling: switched from `PKG_CONFIG_PATH` to `PKG_CONFIG_LIBDIR` so built artifacts take priority over system packages
+* allow specifying a custom meson version to install in the build venv
+* added `fido2` accendino file and integrated it into FreeRDP
+* added `SDL3` accendino file and made FreeRDP use it
+
+## 0.6.0
+
+* added `sso-mib` accendino file
+* changed build directory schema to `<arch-distrib>/<build-item>`
+* fixed default deploy directory
+* exposed more variables and functions to accendino files
+* propagated use of `getOption` across accendino files to allow forcing builds from sources via a build options file
+* added support for building ffmpeg+x264 under Windows: multiple targets in `CustomCommandBuild`, proper msys2 path handling
+* added faac support for FreeRDP under Windows, improved mingw cross-compile settings (windres, missing C11 features)
+* fixed include search to look in the directory of the including file
+* reworked environment variable handling
+* weston: don't build colord due to recent Python compatibility issues
+* updated forgiare accendino files to point to forgiare repos, fixed pkgconfig directory
+* updated GitHub CI workflows to install meson from PyPI
+
 ## 0.5.10 alpha 2
 
 * fixed `LocalSource` when using symbolic links

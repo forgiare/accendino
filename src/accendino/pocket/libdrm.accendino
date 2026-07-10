@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libdrm
+#
+
+libdrm_fromSources = 'libdrm_forceBuild' in locals() or getOption('libdrm.fromSources', False)
+if libdrm_fromSources:
+    libdrm_pkgDeps = {
+        #UBUNTU_LIKE: ['libdrm-dev', 'libxkbcommon-dev'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('libdrm', [],
+            stdGitSourceFromOptions('libdrm', 'https://gitlab.freedesktop.org/mesa/libdrm.git', 'main'),
+            mesonOpts=['-Dtests=false'],
+            pkgs=libdrm_pkgDeps,
+            provides=['libdrm-artifact']
+        ),
+    ]
+
+else:
+    libdrm_pkgDeps = {
+        UBUNTU_LIKE: ['libdrm-dev'],
+        REDHAT_LIKE: ['drm-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('libdrm-artifact', [], pkgs=libdrm_pkgDeps)
+    ]
+

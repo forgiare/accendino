@@ -1,0 +1,105 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building SDL3 libraries
+#
+
+sdl3_pkgDeps = {
+    REDHAT_LIKE: ['SDL3-devel'],
+}
+
+sdl3_image_pkgDeps = {
+    REDHAT_LIKE: ['SDL3_image-devel'],
+}
+
+sdl3_ttf_pkgDeps = {
+    REDHAT_LIKE: ['SDL3_ttf-devel'],
+}
+
+
+sdl3_fromSource = getOption('sdl3.fromSource', True)
+
+if targetDistribId not in ('Redhat', 'Fedora',):
+    sdl3_fromSource = True
+
+elif targetDistribId == 'mingw':
+    # Checks for some existing distribution packets
+    if checkDistrib('>= Fedora 40'):
+        sdl3_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL3'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL3'],
+        })
+
+        sdl3_image_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL3_image'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL3_image'],
+        })
+
+        sdl3_ttf_pkgDeps.update({
+            'Fedora->mingw@i686': ['mingw32-SDL3_ttf'],
+            'Fedora->mingw@x86_64': ['mingw64-SDL3_ttf'],
+        })
+        sdl3_fromSource = False
+
+
+if sdl3_fromSource:
+    include('zlib')
+
+    sdl3_pkgDeps = {
+        REDHAT_LIKE: [
+        ],
+        UBUNTU_LIKE: [
+            'libxss-dev', 'libasound2-dev', 'libpulse-dev', 'libaudio-dev', 'libfribidi-dev',
+            'libjack-dev', 'libsndio-dev', 'libx11-dev', 'libxext-dev',
+            'libxrandr-dev', 'libxcursor-dev', 'libxfixes-dev', 'libxi-dev', 'libxss-dev', 'libxtst-dev',
+            'libxkbcommon-dev', 'libdrm-dev', 'libgbm-dev', 'libgl1-mesa-dev', 'libgles2-mesa-dev',
+            'libegl1-mesa-dev', 'libdbus-1-dev', 'libibus-1.0-dev', 'libudev-dev', 'libthai-dev',
+            DepsAdjuster('>= Ubuntu 22.04', ['libpipewire-0.3-dev', 'libwayland-dev', 'libdecor-0-dev', 'liburing-dev'])
+        ]
+    }
+    sdl3_ttf_pkgDeps = {
+        UBUNTU_LIKE: ['libharfbuzz-dev', 'libfreetype-dev'],
+    }
+
+    sdl3_options = ['-DSDLIMAGE_SAMPLES=OFF', '-DSDLIMAGE_DEPS_SHARED=OFF', '-DSDLIMAGE_VENDORED=ON']
+    # by default we don't include AV1 and webp as they are quite long to build
+    if getOption('SDL3.with_av1', False):
+        sdl3_options.append('-DSDLIMAGE_AVIF=ON')
+    else:
+        sdl3_options.append('-DSDLIMAGE_AVIF=OFF')
+
+    if getOption('SDL3.with_webp', False):
+        sdl3_options.append('-DSDLIMAGE_WEBP=ON')
+    else:
+        sdl3_options.append('-DSDLIMAGE_WEBP=OFF')
+
+    ARTIFACTS += [
+        CMakeBuildArtifact('SDL3', [], GitSource('https://github.com/libsdl-org/SDL.git', 'release-3.4.x'),
+            ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],
+            provides=['SDL3-artifact'],
+            pkgs=sdl3_pkgDeps
+        ),
+
+        CMakeBuildArtifact('SDL3_ttf', ['zlib-artifact', 'SDL3'],
+            GitSource('https://github.com/libsdl-org/SDL_ttf.git', 'release-3.2.x', shallow_submodules=True, recurse_submodules=True),
+            ['-DSDL3TTF_FREETYPE=ON', '-DSDL3TTF_FREETYPE_VENDORED=ON',
+             '-DSDL3TTF_HARFBUZZ=ON', '-DSDL3TTF_HARFBUZZ_VENDORED=ON',
+             '-DSDLTTF_VENDORED=ON', '-DFT_DISABLE_ZLIB=OFF', '-DSDL3TTF_SAMPLES=OFF'],
+            provides=['SDL3_ttf-artifact']
+        ),
+
+        CMakeBuildArtifact('SDL3_image', ['SDL3'],
+            GitSource('https://github.com/libsdl-org/SDL_image.git', 'release-3.4.x', shallow_submodules=True, recurse_submodules=True),
+            sdl3_options,
+            provides=['SDL3_image-artifact']
+        )
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('SDL3-artifact', [], pkgs=sdl3_pkgDeps),
+        DepsBuildArtifact('SDL3_image-artifact', [], pkgs=sdl3_image_pkgDeps),
+        DepsBuildArtifact('SDL3_ttf-artifact', [], pkgs=sdl3_ttf_pkgDeps),
+    ]

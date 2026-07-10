@@ -1,0 +1,31 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building redis-plus-plus
+#
+
+
+redis_plus_plus_fromSources = stdBuildFromSourceTest('redis_plus_plus', locals(), True)
+
+if redis_plus_plus_fromSources:
+    redis_plus_plus_pkgDeps = {
+        UBUNTU_LIKE: ['libhiredis-dev'],
+    }
+
+    redis_plus_plus_src = stdGitSourceFromOptions('redis_plus_plus', 'https://github.com/sewenew/redis-plus-plus.git', 'master')
+    redis_plus_plus_options = ['-DREDIS_PLUS_PLUS_BUILD_TEST=OFF', '-DREDIS_PLUS_PLUS_BUILD_EXAMPLES=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('redis++', [], redis_plus_plus_src,
+            cmakeOpts=redis_plus_plus_options,
+            provides=['redis_plus_plus-artifact'], pkgs=redis_plus_plus_pkgDeps,
+            toolchainArtifacts='c++'
+        ),
+        CMakeBuildArtifact('redis++-static', [], redis_plus_plus_src,
+            cmakeOpts=redis_plus_plus_options + ['-DREDIS_PLUS_PLUS_BUILD_SHARED=OFF'],
+            provides=['redis_plus_plus-artifact'], pkgs=redis_plus_plus_pkgDeps,
+            toolchainArtifacts='c++'
+        ),
+    ]
+

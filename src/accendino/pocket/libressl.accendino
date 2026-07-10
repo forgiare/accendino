@@ -1,0 +1,17 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building openssl
+#
+include('zlib')
+
+
+ARTIFACTS += [
+    CMakeBuildArtifact('libressl', ['zlib-artifact'],
+        RemoteArchiveSource('https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-4.3.1.tar.gz', strip_depth=1), # GitSource('https://github.com/libressl/portable.git', 'v4.3.1'),
+        [], provides='openssl',
+        pkgs = {    }
+    ),
+]

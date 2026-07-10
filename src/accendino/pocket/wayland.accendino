@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building wayland
+#
+
+wayland_fromSources = stdBuildFromSourceTest('wayland', locals(), False)
+
+if wayland_fromSources:
+    ARTIFACTS += [
+        MesonBuildArtifact('wayland', [],
+            stdGitSourceFromOptions('wayland', 'https://gitlab.freedesktop.org/wayland/wayland.git', 'main'),
+            mesonOpts=['-Ddocumentation=false'],
+            pkgs={
+                UBUNTU_LIKE: ['libffi-dev', 'libxml2-dev']
+            },
+            provides=['wayland-artifact']
+        )
+    ]
+else:
+    wayland_pkgDeps = {
+        UBUNTU_LIKE: ['libwayland-dev']
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('wayland-artifact', [], pkgs=wayland_pkgDeps)
+    ]

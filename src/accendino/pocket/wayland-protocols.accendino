@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building wayland_protocols
+#
+
+
+#wayland_protocols_fromSources = 'wayland_protocols_forceBuild' in locals() or getOption('wayland-protocols.fromSources', False)
+wayland_protocols_fromSources = stdBuildFromSourceTest('wayland_protocols', locals(), False)
+if wayland_protocols_fromSources:
+    wayland_protocols_pkgDeps = {
+        #UBUNTU_LIKE: ['libxcb-xkb-dev'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('wayland-protocols', ['wayland-artifact'],
+            stdGitSourceFromOptions('wayland-protocols', 'https://gitlab.freedesktop.org/wayland/wayland-protocols.git', 'main'),
+            mesonOpts=[],
+            pkgs=wayland_protocols_pkgDeps,
+            provides=['wayland-protocols-artifact'],
+            mesonVersion='latest'
+        ),
+    ]
+
+else:
+    wayland_protocols_pkgDeps = {
+        UBUNTU_LIKE: ['wayland-protocols'],
+        # REDHAT_LIKE: ['xkbcommon-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('wayland-protocols-artifact', [], pkgs=wayland_protocols_pkgDeps)
+    ]
+
+

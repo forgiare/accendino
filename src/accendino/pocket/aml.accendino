@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2025 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building Andri's Main Loop library
+#
+aml_fromSources = getOption('aml.fromSources', False)
+if aml_fromSources:
+    ARTIFACTS += [
+        MesonBuildArtifact('aml', [],
+            GitSource('https://github.com/any1/aml.git', 'master'),
+            mesonOpts=['-Dexamples=false'],
+            provides=['aml-artifact']
+        ),
+    ]
+
+else:
+    aml_pkgDeps = {
+        UBUNTU_LIKE: ['libaml-dev'],
+        REDHAT_LIKE: ['aml-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('aml-artifact', [], pkgs=aml_pkgDeps)
+    ]

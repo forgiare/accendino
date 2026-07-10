@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building xkbcommon
+#
+
+xkbcommon_fromSources = 'xkbcommon_forceBuild' in locals() or getOption('xkbcommon.fromSources', False)
+if xkbcommon_fromSources:
+    xkbcommon_pkgDeps = {
+        UBUNTU_LIKE: ['libxcb-xkb-dev'],
+    }
+
+    ARTIFACTS += [
+        MesonBuildArtifact('xkbcommon', [],
+            stdGitSourceFromOptions('xkbcommon', 'https://github.com/xkbcommon/libxkbcommon.git', 'master'),
+            mesonOpts=['-Dxkb-config-root={prefix}/share/X11/xkb', #'-Dxkb-legacy-root={prefix}/share/X11/xkb',
+                       '-Dxkb-config-versioned-extensions-path={prefix}/share/X11/xkb.d',
+                       '-Denable-bash-completion=false', '-Denable-zsh-completion=false'],
+            pkgs=xkbcommon_pkgDeps,
+            provides=['xkbcommon-artifact'],
+            mesonVersion='latest'
+        ),
+    ]
+
+else:
+    xkbcommon_pkgDeps = {
+        UBUNTU_LIKE: ['libxkbcommon-dev'],
+        REDHAT_LIKE: ['xkbcommon-devel'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('xkbcommon-artifact', [], pkgs=xkbcommon_pkgDeps)
+    ]
+
+

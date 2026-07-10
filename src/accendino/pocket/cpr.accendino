@@ -1,0 +1,23 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building cpr, Curl for People
+#
+
+cpr_fromSources = stdBuildFromSourceTest('cpr', locals(), True)
+
+if cpr_fromSources:
+    cpr_src = stdGitSourceFromOptions('cpr', 'https://github.com/libcpr/cpr.git', 'master')
+    cpr_options = ['-DCPR_BUILD_TESTS=OFF', '-DCPR_BUILD_EXAMPLES=OFF']
+    cpr_pkgs = {
+        UBUNTU_LIKE: ['libunistring-dev']
+    }
+    ARTIFACTS += [
+        CMakeBuildArtifact('cpr', [], cpr_src,
+            cmakeOpts=cpr_options,
+            provides=['cpr-artifact'], pkgs=cpr_pkgs,
+            toolchainArtifacts='c++'
+        ),
+    ]

@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+
+#fg
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building spdlog
+#
+
+spdlog_pkgDeps = {
+    UBUNTU_LIKE: ['libspdlog-dev'],
+    REDHAT_LIKE: ['spdlog-devel'],
+}
+
+spdlog_fromSources = stdBuildFromSourceTest('spdlog', locals(), False)
+
+if targetDistribId in ('Windows', 'Darwin',):
+    spdlog_fromSources = True
+
+if spdlog_fromSources:
+    spdlog_src = stdGitSourceFromOptions('spdlog', 'https://github.com/gabime/spdlog.git', 'v1.16.0')
+    spdlog_options = ['-DSPDLOG_BUILD_EXAMPLES=OFF', '-DSPDLOG_BUILD_TESTS=OFF', '-DSPDLOG_BUILD_BENCH=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('spdlog', [], spdlog_src,
+            cmakeOpts=spdlog_options,
+            provides=['spdlog-artifact'], toolchainArtifacts='c++'
+        ),
+        CMakeBuildArtifact('spdlog-static', [], spdlog_src,
+            cmakeOpts=spdlog_options + ['-DSPDLOG_BUILD_SHARED=OFF'],
+            provides=['spdlog-artifact'], toolchainArtifacts='c++'
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('spdlog-artifact', [], pkgs=spdlog_pkgDeps)
+    ]

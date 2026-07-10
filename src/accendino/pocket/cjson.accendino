@@ -18,7 +18,8 @@ if targetDistribId in ('mingw', 'Windows', 'Darwin',):
 
 if cjson_fromSources:
     ARTIFACTS += [
-        CMakeBuildArtifact('cjson', [], GitSource('https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
+        CMakeBuildArtifact('cjson', [],
+            stdGitSourceFromOptions('cjson', 'https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
             ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF'],
             provides=['cjson-artifact']
         ),

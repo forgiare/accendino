@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building nlohmann/json
+#
+
+nlohmann_json_pkgDeps = {
+    UBUNTU_LIKE: ['nlohmann-json3-dev'],
+    REDHAT_LIKE: ['nlohmann-json-devel'],
+}
+
+nlohmann_json_fromSources = stdBuildFromSourceTest('nlohmann_json', locals(), True)
+
+if targetDistribId in ('Windows', 'Darwin',):
+    nlohmann_json_fromSources = True
+
+if nlohmann_json_fromSources:
+    nlohmann_json_src = stdGitSourceFromOptions('nlohmann_json', 'https://github.com/nlohmann/json.git', 'master')
+    nlohmann_json_options = []
+    ARTIFACTS += [
+        MesonBuildArtifact('nlohmann_json', [], nlohmann_json_src,
+            mesonOpts=nlohmann_json_options,
+            provides=['nlohmann_json-artifact'], toolchainArtifacts='c++'
+        ),
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('nlohmann_json-artifact', [], pkgs=nlohmann_json_pkgDeps)
+    ]
