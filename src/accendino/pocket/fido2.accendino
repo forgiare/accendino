@@ -10,7 +10,7 @@ if getOption('libcbor.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 
     ARTIFACTS += [
         CMakeBuildArtifact('libcbor', [],
             stdGitSourceFromOptions('libcbor', 'https://github.com/PJK/libcbor.git', 'master'),
-            ['-DBUILD_TESTING=OFF', '-DWITH_EXAMPLES=OFF'],
+            ['-DBUILD_TESTING=OFF', '-DWITH_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=ON'],
             provides=['libcbor-artifact']
         )
     ]
@@ -27,7 +27,7 @@ else:
 if getOption('fido2.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
     ARTIFACTS += [
         CMakeBuildArtifact('fido2', ['libcbor-artifact', 'zlib-artifact'],
-            stdGitSourceFromOptions('https://github.com/Yubico/libfido2.git', 'main'),
+            stdGitSourceFromOptions('fido2', 'https://github.com/Yubico/libfido2.git', 'main'),
             ['-DBUILD_TESTS=OFF', '-DBUILD_MANPAGES=OFF'],
             provides=['fido2-artifact']
         ),
