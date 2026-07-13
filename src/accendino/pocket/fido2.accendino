@@ -6,7 +6,7 @@
 #    Detecting or building FIDO2 libraries
 #
 
-if getOption('libcbor.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
+if stdBuildFromSourceTest('libcbor', locals(), targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
     ARTIFACTS += [
         CMakeBuildArtifact('libcbor', [],
             stdGitSourceFromOptions('libcbor', 'https://github.com/PJK/libcbor.git', 'master'),
@@ -24,7 +24,7 @@ else:
         DepsBuildArtifact('libcbor-artifact', [], pkgs=libcbor_pkgDeps),
     ]
 
-if getOption('fido2.fromSources', targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
+if stdBuildFromSourceTest('fido2', locals(), targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
     ARTIFACTS += [
         CMakeBuildArtifact('fido2', ['libcbor-artifact', 'zlib-artifact'],
             stdGitSourceFromOptions('fido2', 'https://github.com/Yubico/libfido2.git', 'main'),

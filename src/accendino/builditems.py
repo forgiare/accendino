@@ -207,6 +207,13 @@ class BuildArtifact(DepsBuildArtifact):
         r = os.environ.copy()
         xkeys = []
 
+        # PKG_CONFIG_PATH takes precedence over PKG_CONFIG_LIBDIR in pkg-config's
+        # search order, so an inherited PKG_CONFIG_PATH from the host environment
+        # would make system .pc files win over the ones in the deploy directory
+        # that we set up below via PKG_CONFIG_LIBDIR. Drop it so PKG_CONFIG_LIBDIR
+        # is the sole source of truth, unless the artifact explicitly re-adds one.
+        r.pop('PKG_CONFIG_PATH', None)
+
         if self.needsMsys2:
             r['MSYS2_PATH_TYPE'] = 'inherit'
             xkeys.append('MSYS2_PATH_TYPE')
