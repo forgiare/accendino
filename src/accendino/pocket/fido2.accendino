@@ -26,7 +26,7 @@ else:
 
 if stdBuildFromSourceTest('fido2', locals(), targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
     ARTIFACTS += [
-        CMakeBuildArtifact('fido2', ['libcbor-artifact', 'zlib-artifact'],
+        CMakeBuildArtifact('fido2', ['libcbor-artifact', 'zlib-artifact', 'openssl-artifact'],
             stdGitSourceFromOptions('fido2', 'https://github.com/Yubico/libfido2.git', 'main'),
             ['-DBUILD_TESTS=OFF', '-DBUILD_MANPAGES=OFF'],
             provides=['fido2-artifact']

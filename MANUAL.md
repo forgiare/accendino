@@ -14,6 +14,10 @@ _Accendino_ accepts the following command line arguments:
 * `--build-type=<build type>`: kind of build, can be `release` or `debug`
 * `--work-dir=<dir>`: the top directory where projects will be stored, current directory by default
 * `--resume-from=<target>`: resume the build starting at this target
+* `--refreshSources`: force updating git sources to their upstream branch, and rebuild any artifact whose
+  source actually changed (along with everything depending on it)
+* `--refresh`: force rebuilding the requested targets (the ones passed via `--targets`, or the default
+  ones), even if they were already built
 * `--project=<name>`: sets a project name (used to store all items of this project in the same tree), "work" by default
 * `--options=<path>`: path to an ini file containing build options
 * `<accendino file>`: the name of the root _Accendino_ file to load
@@ -154,6 +158,9 @@ Some examples:
     you have `{'Fedora': ['pack1'], 'Ubuntu': ['pack3'] }`).
     With `override=False`(the default) you have `{'Fedora': ['pack1'], 'Ubuntu': ['pack2', 'pack3'] }`). This is useful if you define a build
     artifact that is just the variant of another one;
+* `mergePkgDeps(d1 : Dict[str, List[str]], d2 : Dict[str, List[str]]) -> Dict[str, List[str]]`: merges two [platform packages dependencies](#platform-packages-dependencies)
+    dictionaries together, concatenating the package lists of keys present in both. For instance with `d1={'Ubuntu': ['pack1']}` and `d2={'Ubuntu': ['pack2'], 'Fedora': ['pack3']}`
+    you get `{'Ubuntu': ['pack1', 'pack2'], 'Fedora': ['pack3']}`;
 
 ### Objects
 
@@ -248,7 +255,7 @@ Specific build artifacts objects and their signatures:
 
 * `DepsBuildArtifact(name: str, deps=[], provides=[], pkgs={})`: a meta build artifact that can used to group other build artifacts
 * `BuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[])`: a generic build artifact with prepare commands and build commands
-* `CMakeBuilArtifact(name: str, deps, srcObj, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that uses `cmake` to be built
+* `CMakeBuildArtifact(name: str, deps, srcObj, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that uses `cmake` to be built
 * `QMakeBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={})`: a build artifact relying on `qmake` / `make` to build
 * `AutogenBuildArtifact(name: str, deps, srcObj, autogenArgs=[], noconfigure=False, isAutogen=True, configureArgs=[], runInstallDir=None, extraEnv={}, provides=[], pkgs={}`:
     a build artifact that relies on `autotools` / `make` to build

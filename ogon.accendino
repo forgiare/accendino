@@ -1,7 +1,7 @@
 include("freerdp.accendino")
 
 OGON_opts=['-DWITH_OPENH264=on']
-EXTRA_ENV={'PKG_CONFIG_PATH': '{prefix}/{libdir}/pkgconfig/:{prefix}/lib/x86_64-linux-gnu/pkgconfig/'}
+EXTRA_ENV={}
 XOGON_ENV=EXTRA_ENV.copy()
 XOGON_ENV.update({'NOCONFIGURE': '10'})
 PA_ENV=EXTRA_ENV.copy()
@@ -18,7 +18,6 @@ xogon_ubuntu_debian_base=['xutils-dev', 'libpixman-1-dev',
     DepsAdjuster('< Ubuntu 18.04', add=['libxfont-dev']),
 ]
 
-xogon_ubuntu_2204 = ['x11proto-dri3-dev', 'x11proto-resource-dev', 'x11proto-bigreqs-dev', 'x11proto-composite-dev', 'x11proto-xcmisc-dev']
 
 xogon_fedora_base = ['pixman-devel', 'libXcomposite-devel', 'libXpresent-devel',
     'libXres-devel', 'libXScrnSaver-devel', 'xorg-x11-xtrans-devel', 'xorg-x11-server-devel',
@@ -75,7 +74,8 @@ ARTIFACTS += [
         }
     ),
 
-    AutogenBuildArtifact('ogon-xserver', ['ogon', DepsAdjuster('>= Ubuntu 16.04', add=['libxfont'])],
+    AutogenBuildArtifact('ogon-xserver',
+        ['ogon', DepsAdjuster('>= Ubuntu 16.04', add=['libxfont'])],
         GitSource('https://github.com/ogon-project/xserver-ogon.git', 'master'),
         extraEnv=XOGON_ENV, runInstallDir='hw/xogon',
         configureArgs=['--disable-xfree86-utils', '--disable-linux-acpi', '--disable-linux-apm', '--disable-xorg', '--disable-xvfb',

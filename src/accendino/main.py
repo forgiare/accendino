@@ -228,7 +228,7 @@ class AccendinoConfig:
                 section = configparser.DEFAULTSECT
                 name = optName
 
-            if not section in self.options.sections():
+            if section not in self.options.sections():
                 return defaultVal
 
             ret = self.options[section].get(name, defaultVal)
