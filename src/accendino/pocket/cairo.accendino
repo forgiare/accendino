@@ -22,7 +22,7 @@ if targetDistribId == 'mingw':
     else:
         cairo_fromSources = True
 
-if targetDistribId == 'Windows':
+if targetDistribId in ('Windows', 'Darwin',):
     cairo_fromSources = True
 
 if cairo_fromSources:

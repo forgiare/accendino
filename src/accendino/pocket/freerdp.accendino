@@ -38,7 +38,7 @@ if checkDistrib('<= Ubuntu 22.04'):
 
 include('fido2')
 
-freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
+freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', 'Darwin',))
 
 
 if freerdp_fromSources:
@@ -168,10 +168,10 @@ if freerdp_fromSources:
         ]
 else:
     freerdp2_pkgDeps = {
-        'Ubuntu': ['freerdp2-dev']
+        UBUNTU_LIKE: ['freerdp2-dev']
     }
     freerdp3_pkgDeps = {
-        'Ubuntu': ['freerdp3-dev']
+        UBUNTU_LIKE: ['freerdp3-dev']
     }
     ARTIFACTS += [
         DepsBuildArtifact('freerdp2-artifact', [], pkgs=freerdp2_pkgDeps),
