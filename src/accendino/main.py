@@ -31,6 +31,7 @@ def doHelp(args, is_error) -> int:
     print("\t--build-type=[release|debug]: type of build (defaults to release)")
     print("\t--work-dir=<path>: a path to the working directory where sources are checked out and built")
     print("\t--options=<path>: a path to the build options file")
+    print("\t--refreshSources: force updating git sources and rebuild artifacts whose sources changed")
     if is_error:
         return 1
 
@@ -140,6 +141,7 @@ class AccendinoConfig:
         self.doBuild = True
         self.libdir = 'lib'
         self.resumeFrom = None
+        self.refreshSources = False
         self.maxJobs = 5
         self.crossCompilation = False
         self.toolchain = 'default'
@@ -569,6 +571,8 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
         config.workDir = pathlib.PurePath(os.path.abspath(value))
     elif option in ("--resume-from", ):
         config.resumeFrom = value
+    elif option in ('--refreshSources',):
+        config.refreshSources = True
     elif option in ('--options',):
         if not fromCmdLine:
             logging.error("options file can't be given in an options file")
@@ -610,7 +614,7 @@ def run(args: T.List[str]) -> int:
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
-        "buildWithPowershell", "version"
+        "buildWithPowershell", "version", "refreshSources"
     ])
 
     for option, value in opts:

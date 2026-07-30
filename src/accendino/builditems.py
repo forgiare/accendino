@@ -307,9 +307,17 @@ class BuildArtifact(DepsBuildArtifact):
         self.builtFile = self.buildDir / BUILT_FILE
         return True
 
-    def checkout(self, _config) -> bool:
+    def checkout(self, config) -> bool:
         with open(self.logFile, "at", encoding='utf8') as flog:
-            return self.srcObj.checkout(self.sourceDir, flog)
+            ok = self.srcObj.checkout(self.sourceDir, flog, refresh=config.refreshSources)
+
+        if ok and config.refreshSources and self.srcObj.refreshed:
+            logging.info(f'source of {self.name} was refreshed, forcing a rebuild')
+            for f in (self.prepareStateFile, self.builtFile):
+                if f and os.path.exists(f):
+                    os.remove(f)
+
+        return ok
 
 
     def showLogs(self, header) -> None:
