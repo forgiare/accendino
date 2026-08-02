@@ -1,5 +1,16 @@
 # _Accendino_ changelog
 
+## 0.6.2
+
+* fixed toolchain detection on MacOsX: it was identified as `Gcc` by default while `cc`/`gcc` are actually aliases for `clang`
+* fixed some conditional from-sources builds under MacOsX
+* force building `zlib` from sources on MacOsX, otherwise packages looking for its `.pc` file (eg `fido2`) fail to find it
+* fixed `PKG_CONFIG_PATH` inherited from the host environment taking precedence over `PKG_CONFIG_LIBDIR`, causing system packages to be used instead of the ones we just built
+* fixed build of FreeRDP on Ubuntu 22.04 by allowing `libcbor` and `fido2` to be forced to build from sources as the system versions are too old
+* fixed `fido2` accendino file (missing package name argument, build as shared lib)
+* added `--refreshSources` command line argument to force updating git sources to their upstream branch and rebuild artifacts (and their dependents) whose source actually changed
+* added `--refresh` command line argument to force rebuilding the requested targets, even if they were already built
+
 ## 0.6.1
 
 * added accendino files for `spdlog`, `stduuid`, `redis++`, `nlohmann/json`, `jwt-cpp`, `cpr`, `libressl` and `libyuv`

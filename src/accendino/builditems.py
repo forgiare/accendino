@@ -104,6 +104,11 @@ class DepsBuildArtifact:
     def build(self, _config) -> bool:
         return True
 
+    def forceRebuild(self) -> None:
+        for f in (self.prepareStateFile, self.builtFile):
+            if f and os.path.exists(f):
+                os.remove(f)
+
     def __str__(self) -> str:
         return f"<{self.name}>"
 
@@ -207,6 +212,14 @@ class BuildArtifact(DepsBuildArtifact):
         r = os.environ.copy()
         xkeys = []
 
+        # PKG_CONFIG_PATH takes precedence over PKG_CONFIG_LIBDIR in pkg-config's
+        # search order, so an inherited PKG_CONFIG_PATH from the host environment
+        # would make system .pc files win over the ones in the deploy directory
+        # that we set up below via PKG_CONFIG_LIBDIR. Drop it so PKG_CONFIG_LIBDIR
+        # is the sole source of truth, and if some PKG_CONFIG_PATH where set it is
+        # put back right after all our entries.
+        orig_pkg_config_path = r.pop('PKG_CONFIG_PATH', None)
+
         if self.needsMsys2:
             r['MSYS2_PATH_TYPE'] = 'inherit'
             xkeys.append('MSYS2_PATH_TYPE')
@@ -218,7 +231,7 @@ class BuildArtifact(DepsBuildArtifact):
                 self._updateEnvMap(config, r, toolchainEnv)
                 xkeys += toolchainEnv.keys()
 
-        # add a PKG_CONFIG_PATH
+        # add a PKG_CONFIG_LIBDIR
         xkeys.append('PKG_CONFIG_LIBDIR')
         pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig:{prefix_posix}/share/pkgconfig'
 
@@ -228,6 +241,8 @@ class BuildArtifact(DepsBuildArtifact):
             pkg_config_path += f':/usr/lib/{archLibDir}/pkgconfig'
 
         pkg_config_path += ':/usr/share/pkgconfig'
+        if orig_pkg_config_path:
+            pkg_config_path += ":" + orig_pkg_config_path
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,
@@ -247,8 +262,8 @@ class BuildArtifact(DepsBuildArtifact):
         xkeys = list( set(xkeys) )
 
         if createEnvFile:
-            fileDumper = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
-            fileDumper(r, xkeys)
+            fileDumperFn = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
+            fileDumperFn(r, xkeys)
 
         return (r, xkeys)
 
@@ -297,9 +312,17 @@ class BuildArtifact(DepsBuildArtifact):
         self.builtFile = self.buildDir / BUILT_FILE
         return True
 
-    def checkout(self, _config) -> bool:
+    def checkout(self, config) -> bool:
         with open(self.logFile, "at", encoding='utf8') as flog:
-            return self.srcObj.checkout(self.sourceDir, flog)
+            ok = self.srcObj.checkout(self.sourceDir, flog, refresh=config.refreshSources)
+
+        if ok and config.refreshSources and self.srcObj.refreshed:
+            logging.info(f'source of {self.name} was refreshed, forcing a rebuild')
+            for f in (self.prepareStateFile, self.builtFile):
+                if f and os.path.exists(f):
+                    os.remove(f)
+
+        return ok
 
 
     def showLogs(self, header) -> None:

@@ -251,10 +251,12 @@ class ClangToolChain(IToolChain):
         IToolChain.__init__(self, 'Clang', config)
         self.artifactRequires = {
             'c': treatPackageDeps({
-                'Debian|Ubuntu|Fedora|Redhat': ['clang']
+                'Debian|Ubuntu|Fedora|Redhat': ['clang'],
+                'Darwin': ['path/clang'],
             }),
             'c++': treatPackageDeps({
-                'Debian|Ubuntu|Fedora|Redhat': ['clang']
+                'Debian|Ubuntu|Fedora|Redhat': ['clang'],
+                'Darwin': ['path/clang++'],
             })
         }
 
@@ -325,6 +327,10 @@ class DefaultToolChain(IToolChain):
 
         if config.distribId == 'Windows':
             self.testObjs.append(VsToolChain(config, 'msvc'))
+        elif config.distribId == 'Darwin':
+            # macOS only ships clang: `gcc`/`cc` are just aliases for it, there is no
+            # real gcc, so don't let GccToolChain win the autodetection there
+            self.testObjs.append(ClangToolChain(config))
         else:
             self.testObjs.append(GccToolChain(config))
             self.testObjs.append(ClangToolChain(config))

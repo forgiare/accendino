@@ -25,7 +25,9 @@ if targetDistribId == 'mingw':
     else:
         zlib_fromSources = True
 
-if targetDistribId == 'Windows':
+if targetDistribId in ('Windows', 'Darwin'):
+    # macOS ships zlib as a system library but without a pkgconfig file, so build
+    # our own to get one that other CMake/pkg-config based artifacts (eg fido2) can find
     zlib_fromSources = True
 
 if zlib_fromSources:
@@ -34,7 +36,7 @@ if zlib_fromSources:
         CMakeBuildArtifact('zlib', [], zlib_src,
             cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
         ),
-        CMakeBuildArtifact('zlib-static', [], gzip_src,
+        CMakeBuildArtifact('zlib-static', [], zlib_src,
             cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=OFF']
         ),
     ]

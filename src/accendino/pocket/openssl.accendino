@@ -24,7 +24,7 @@ if targetDistribId == 'mingw':
     else:
         openssl_fromSources = True
 
-if targetDistribId == 'Windows':
+if targetDistribId in ('Windows', 'Darwin',):
     openssl_fromSources = True
 
 if openssl_fromSources:

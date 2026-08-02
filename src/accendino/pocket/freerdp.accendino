@@ -29,10 +29,16 @@ include('cairo')
 include('sdl2')
 include('sdl3')
 #include('sso-mib')
-include('fido2')
 include('libyuv')
 
-freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', ))
+if checkDistrib('<= Ubuntu 22.04'):
+    # we need recent versions of libcbor and libfido2 than the one shipped with the distribution
+    libcbor_forceBuild = True
+    fido2_forceBuild = True
+
+include('fido2')
+
+freerdp_fromSources = 'freerdp_forceBuild' in locals() or getOption('freerdp.fromSources', targetDistribId in ('Windows', 'mingw', 'Darwin',))
 
 
 if freerdp_fromSources:
@@ -115,8 +121,10 @@ if freerdp_fromSources:
         freerdp3_opts += ['-DCHANNEL_RDPEWA=ON', '-DCHANNEL_RDPEWA_CLIENT=ON']
         freerdp_deps += ['fido2-artifact']
 
+
     if targetDistribId in ('Windows', 'mingw',):
         FREERDP_opts += ['-DWITH_SHADOW=OFF']
+
 
 
     #
@@ -160,10 +168,10 @@ if freerdp_fromSources:
         ]
 else:
     freerdp2_pkgDeps = {
-        'Ubuntu': ['freerdp2-dev']
+        UBUNTU_LIKE: ['freerdp2-dev']
     }
     freerdp3_pkgDeps = {
-        'Ubuntu': ['freerdp3-dev']
+        UBUNTU_LIKE: ['freerdp3-dev']
     }
     ARTIFACTS += [
         DepsBuildArtifact('freerdp2-artifact', [], pkgs=freerdp2_pkgDeps),
