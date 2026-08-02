@@ -104,6 +104,11 @@ class DepsBuildArtifact:
     def build(self, _config) -> bool:
         return True
 
+    def forceRebuild(self) -> None:
+        for f in (self.prepareStateFile, self.builtFile):
+            if f and os.path.exists(f):
+                os.remove(f)
+
     def __str__(self) -> str:
         return f"<{self.name}>"
 

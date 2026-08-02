@@ -32,6 +32,7 @@ def doHelp(args, is_error) -> int:
     print("\t--work-dir=<path>: a path to the working directory where sources are checked out and built")
     print("\t--options=<path>: a path to the build options file")
     print("\t--refreshSources: force updating git sources and rebuild artifacts whose sources changed")
+    print("\t--refresh: force rebuild of the requested targets, even if they were already built")
     if is_error:
         return 1
 
@@ -142,6 +143,7 @@ class AccendinoConfig:
         self.libdir = 'lib'
         self.resumeFrom = None
         self.refreshSources = False
+        self.refresh = False
         self.maxJobs = 5
         self.crossCompilation = False
         self.toolchain = 'default'
@@ -573,6 +575,8 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
         config.resumeFrom = value
     elif option in ('--refreshSources',):
         config.refreshSources = True
+    elif option in ('--refresh',):
+        config.refresh = True
     elif option in ('--options',):
         if not fromCmdLine:
             logging.error("options file can't be given in an options file")
@@ -614,7 +618,7 @@ def run(args: T.List[str]) -> int:
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
-        "buildWithPowershell", "version", "refreshSources"
+        "buildWithPowershell", "version", "refreshSources", "refresh"
     ])
 
     for option, value in opts:
@@ -725,6 +729,10 @@ def run(args: T.List[str]) -> int:
                 if not item.init(config):
                     logging.error(f"error initializing {item.name}")
                     return 1
+
+                if config.refresh and item in buildList:
+                    logging.info(f' * forcing rebuild of {item.name}')
+                    item.forceRebuild()
 
                 logging.debug('==> checking out')
                 if not item.checkout(config):
