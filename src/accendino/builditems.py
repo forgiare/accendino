@@ -314,7 +314,7 @@ class BuildArtifact(DepsBuildArtifact):
 
     def checkout(self, config) -> bool:
         with open(self.logFile, "at", encoding='utf8') as flog:
-            ok = self.srcObj.checkout(self.sourceDir, flog, refresh=config.refreshSources)
+            ok = self.srcObj.checkout(self.sourceDir, flog, config.refreshSources)
 
         if ok and config.refreshSources and self.srcObj.refreshed:
             logging.info(f'source of {self.name} was refreshed, forcing a rebuild')

@@ -28,4 +28,5 @@ disable=
 	too-many-arguments,
 	no-member,
 	too-many-return-statements,
+	superfluous-parens,
 	broad-exception-caught	
