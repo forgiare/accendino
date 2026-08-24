@@ -14,6 +14,7 @@
 #     * with_sdl3 build with SDL3 support
 #     * with_yuv build with libyuv support
 #     * with_cwalk build with cwalk support
+#     * with_dav1d build with dav1d AV1 decoder support (FreeRDP3 only)
 #
 
 include('zlib')
@@ -32,6 +33,7 @@ include('sdl3')
 #include('sso-mib')
 include('libyuv')
 include('cwalk')
+include('dav1d')
 
 if checkDistrib('<= Ubuntu 22.04'):
     # we need recent versions of libcbor and libfido2 than the one shipped with the distribution
@@ -105,6 +107,12 @@ if freerdp_fromSources:
         freerdp3_opts.append('-DWITH_CWALK=ON')
     else:
         freerdp3_opts.append('-DWITH_CWALK=OFF')
+
+    if getOption('freerdp.with_dav1d', True):
+        freerdp_deps.append('dav1d-artifact')
+        freerdp3_opts.append('-DWITH_DAV1D=ON')
+    else:
+        freerdp3_opts.append('-DWITH_DAV1D=OFF')
 
     if targetDistribId in ('mingw',):
         FREERDP_opts += ['-DWITH_PLATFORM_SERVER=OFF', '-DUSE_UNWIND=OFF',

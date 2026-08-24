@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building dav1d
+#
+
+dav1d_fromSources = stdBuildFromSourceTest('dav1d', locals(), targetDistribId in ('mingw', 'Windows', 'Darwin',))
+
+if dav1d_fromSources:
+    ARTIFACTS += [
+        MesonBuildArtifact('dav1d', [],
+            stdGitSourceFromOptions('dav1d', 'https://code.videolan.org/videolan/dav1d.git', '1.5.4'),
+            mesonOpts=['-Denable_tools=false', '-Denable_examples=false', '-Denable_tests=false'],
+            provides=['dav1d-artifact']
+        )
+    ]
+else:
+    dav1d_pkgDeps = {
+        UBUNTU_LIKE: ['libdav1d-dev'],
+        REDHAT_LIKE: ['dav1d-devel'],
+        'FreeBSD': ['dav1d'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('dav1d-artifact', [], pkgs=dav1d_pkgDeps)
+    ]
