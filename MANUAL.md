@@ -161,6 +161,7 @@ Some examples:
 * `mergePkgDeps(d1 : Dict[str, List[str]], d2 : Dict[str, List[str]]) -> Dict[str, List[str]]`: merges two [platform packages dependencies](#platform-packages-dependencies)
     dictionaries together, concatenating the package lists of keys present in both. For instance with `d1={'Ubuntu': ['pack1']}` and `d2={'Ubuntu': ['pack2'], 'Fedora': ['pack3']}`
     you get `{'Ubuntu': ['pack1', 'pack2'], 'Fedora': ['pack3']}`;
+* `abort(msg: str = None) -> None`: immediately stops the whole _Accendino_ run with exit code `1` showing the optional error message;
 
 ### Objects
 

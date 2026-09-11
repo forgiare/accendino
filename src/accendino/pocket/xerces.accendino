@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building Xerces-C++
+#
+
+xerces_pkgDeps = {
+    UBUNTU_LIKE: ['libxerces-c-dev'],
+    REDHAT_LIKE: ['xerces-c-devel'],
+}
+
+xerces_fromSources = stdBuildFromSourceTest('xerces', locals(), targetDistribId in ('mingw', 'Windows', 'Darwin',))
+
+if xerces_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('xerces', [],
+            stdGitSourceFromOptions('xerces', 'https://github.com/apache/xerces-c.git', 'v3.3.0'),
+            cmakeOpts=['-DBUILD_SHARED_LIBS=ON', '-Dnetwork=OFF'],
+            provides=['xerces-artifact']
+        ),
+    ]
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('xerces-artifact', [], pkgs=xerces_pkgDeps)
+    ]
