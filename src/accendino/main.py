@@ -251,6 +251,11 @@ class AccendinoConfig:
 
             return getOption(f'{key}.fromSources', default_option)
 
+        def abort(msg: str = None) -> None:
+            if not msg is None:
+                logging.fatal(msg)
+            sys.exit(1)
+
         self.sources = []
         self.context = {
             'ARTIFACTS': [],
@@ -281,6 +286,7 @@ class AccendinoConfig:
             'checkAccendinoVersion': checkAccendinoVersionFn,
             'stdGitSourceFromOptions': stdGitSourceFromOptions,
             'stdBuildFromSourceTest': stdBuildFromSourceTest,
+            'abort': abort,
         }
 
     def findSourceFile(self, fname: str, include_once: bool = True) -> str:

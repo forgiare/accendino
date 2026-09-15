@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libxml2
+#
+
+libxml2_pkgDeps = {
+    UBUNTU_LIKE: ['libxml2-dev'],
+    REDHAT_LIKE: ['libxml2-devel'],
+}
+
+libxml2_fromSources = stdBuildFromSourceTest('libxml2', locals(), targetDistribId in ('mingw', 'Windows', 'Darwin',))
+
+if libxml2_fromSources:
+    ARTIFACTS += [
+        CMakeBuildArtifact('libxml2', [],
+            stdGitSourceFromOptions('libxml2', 'https://github.com/GNOME/libxml2.git', 'v2.15.4'),
+            cmakeOpts=[
+                '-DLIBXML2_WITH_TESTS=OFF',
+                '-DLIBXML2_WITH_PROGRAMS=OFF',
+                '-DLIBXML2_WITH_PYTHON=OFF',
+                '-DLIBXML2_WITH_DOCS=OFF',
+            ],
+            provides=['libxml2-artifact']
+        ),
+    ]
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('libxml2-artifact', [], pkgs=libxml2_pkgDeps)
+    ]
