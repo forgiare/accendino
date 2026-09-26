@@ -63,7 +63,7 @@ if freerdp_fromSources:
                     'opus-artifact',  'faad2-artifact', 'faac-artifact']
 
 
-    freerdp3_opts = ['-DWITHOUT_FREERDP3x_DEPRECATED=OFF', '-DWITH_CJSON_REQUIRED=ON']
+    freerdp3_opts = ['-DWITHOUT_FREERDP_3x_DEPRECATED=OFF', '-DWITH_CJSON_REQUIRED=ON']
     freerdp_ffmpeg_opts = ['-DWITH_FFMPEG=OFF', '-DWITH_SWSCALE=OFF']
     if getOption('freerdp.with_ffmpeg', True):
         freerdp_deps.append('ffmpeg-artifact')
@@ -121,15 +121,26 @@ if freerdp_fromSources:
             '-DCMAKE_MODULE_PATH={prefix}/lib/cmake;{prefix}/lib;{prefix}'
         ]
 
-    if getOption('freerdp.with_sdl2', targetDistribId in ('Darwin', 'mingw',)):
-        FREERDP_opts += ['-DWITH_SDL2=ON']
+    # FreeRDP3 gates its SDL clients with WITH_CLIENT_SDL{2,3}, which default to ON as soon as the
+    # corresponding SDL is found, so we must explicitly turn them OFF
+    freerdp_with_sdl2 = getOption('freerdp.with_sdl2', targetDistribId in ('Darwin', 'mingw',))
+    if freerdp_with_sdl2:
+        freerdp3_opts += ['-DWITH_CLIENT_SDL2=ON']
         freerdp_deps += ['SDL2-artifact', 'SDL2_image-artifact', 'SDL2_ttf-artifact']
     else:
-        FREERDP_opts += ['-DWITH_SDL2=OFF']
+        freerdp3_opts += ['-DWITH_CLIENT_SDL2=OFF']
 
-    if getOption('freerdp.with_sdl3', True):
-        freerdp3_opts += ['-DWITH_CLIENT_SDL=ON', '-DWITH_CLIENT_SDL3=ON', '-DWITH_SDL_LINK_SHARED=ON']
+    freerdp_with_sdl3 = getOption('freerdp.with_sdl3', True)
+    if freerdp_with_sdl3:
+        freerdp3_opts += ['-DWITH_CLIENT_SDL3=ON']
         freerdp_deps += ['SDL3-artifact', 'SDL3_ttf-artifact', 'SDL3_image-artifact']
+    else:
+        freerdp3_opts += ['-DWITH_CLIENT_SDL3=OFF']
+
+    if freerdp_with_sdl2 or freerdp_with_sdl3:
+        freerdp3_opts += ['-DWITH_CLIENT_SDL=ON', '-DWITH_SDL_LINK_SHARED=ON']
+    else:
+        freerdp3_opts += ['-DWITH_CLIENT_SDL=OFF']
 
     default_fido2 = targetDistribId not in ('mingw',)
     if getOption('freerdp.with_fido2', default_fido2):
