@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building curl
+#
+
+curl_pkgDeps = {
+    UBUNTU_LIKE: ['libcurl4-openssl-dev'],
+    REDHAT_LIKE: ['libcurl-devel'],
+    'FreeBSD': ['curl'],
+}
+
+curl_fromSources = stdBuildFromSourceTest('curl', locals(), targetDistribId in ('mingw', 'Windows', 'Darwin',))
+
+if curl_fromSources:
+    include('zlib')
+    include('openssl')
+
+    curl_options = [
+        '-DBUILD_TESTING=OFF',
+        '-DBUILD_MISC_DOCS=OFF',
+        '-DENABLE_CURL_MANUAL=OFF',
+        '-DCURL_USE_OPENSSL=ON',
+    ]
+
+    ARTIFACTS += [
+        CMakeBuildArtifact('curl', ['zlib-artifact', 'openssl-artifact'],
+            stdGitSourceFromOptions('curl', 'https://github.com/curl/curl.git', 'curl-8_22_0'),
+            cmakeOpts=curl_options,
+            provides=['curl-artifact']
+        ),
+    ]
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('curl-artifact', [], pkgs=curl_pkgDeps)
+    ]
