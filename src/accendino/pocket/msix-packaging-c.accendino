@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building msix-packaging-c
+#
+#    A portable C11 reimplementation of the "unpack" subset of Microsoft's msix-packaging
+#    (see msix-packaging.accendino), built with Meson: no C++, no COM emulation, one code path
+#    for Linux/Windows/macOS. Depends on zlib/libxml2/OpenSSL, picked up here from the
+#    accendino-built zlib/openssl/libxml2 artifacts via pkg-config rather than upstream's own
+#    Meson wrap subprojects.
+#
+include('zlib')
+include('openssl')
+include('libxml2')
+
+msix_packaging_c_options = [
+    '-Dbuild_samples=false',
+    '-Dtests=false',
+]
+
+if targetDistribId == 'mingw':
+    # default_library=static works around a static/shared library-lookup quirk in upstream's
+    # OpenSSL Meson wrap when cross-compiling to Windows; not needed for wrap_mode=forcefallback
+    # (dropped here since we provide zlib/openssl/libxml2 ourselves instead of the wraps), but
+    # kept since it's also upstream's documented, tested way to get a mingw build of the library
+    # itself.
+    msix_packaging_c_options += ['-Ddefault_library=static']
+
+ARTIFACTS += [
+    MesonBuildArtifact('msix-packaging-c', ['zlib-artifact', 'openssl-artifact', 'libxml2-artifact'],
+        stdGitSourceFromOptions('msix-packaging-c', 'https://github.com/hardening/msix-packaging-c.git', 'master'),
+        mesonOpts=msix_packaging_c_options,
+        provides=['msix-packaging-c-artifact']
+    ),
+]

@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building cwalk
+#
+
+cwalk_fromSources = stdBuildFromSourceTest('cwalk', locals(), True)
+
+if cwalk_fromSources:
+    cwalk_src = stdGitSourceFromOptions('cwalk', 'https://github.com/likle/cwalk.git', 'v1.2.9')
+    cwalk_options = ['-DENABLE_TESTS=OFF']
+    ARTIFACTS += [
+        CMakeBuildArtifact('cwalk', [], cwalk_src,
+            cmakeOpts=cwalk_options,
+            provides=['cwalk-artifact']
+        ),
+    ]

@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building msix-packaging
+#
+#    Note: upstream (https://github.com/microsoft/msix-packaging) always vendors and builds
+#    its own copies of zlib/openssl/xerces-c, and doesn't build with GCC as-is on Linux (a few
+#    real GCC-vs-Clang portability gaps: a UuidOfImpl template specialization ends up with C
+#    linkage inside an extern "C" block, and its own SIZE_T typedef collides with a same-named
+#    include guard GCC's <stddef.h> already defines). We build from a fork with those GCC fixes,
+#    plus USE_SYSTEM_XERCES/USE_SYSTEM_ZLIB/USE_SYSTEM_OPENSSL options so none of the three get
+#    built from the bundled copies on Linux, and instead pick up the zlib/openssl/xerces
+#    artifacts below.
+#
+include('zlib')
+include('openssl')
+include('xerces')
+
+# find_package(OpenSSL)/find_package(ZLIB) default to also searching plain host system paths
+# (e.g. /usr/include) even while cross-compiling, since the mingw toolchain file doesn't
+# restrict CMAKE_FIND_ROOT_PATH_MODE_* to the sysroot. When accendino's own zlib/openssl are
+# built from sources they don't install a CMake config package, so the only way to steer
+# find_package() at them (over a same-named host dev package that might also be installed) is
+# via these hint variables that both Find modules honor.
+msix_packaging_useSystemOpts = [
+    '-DUSE_SYSTEM_XERCES=on',
+    '-DUSE_SYSTEM_ZLIB=on',
+    '-DUSE_SYSTEM_OPENSSL=on',
+    '-DZLIB_ROOT={prefix_posix}',
+    '-DOPENSSL_ROOT_DIR={prefix_posix}',
+]
+
+# Note: mingw is deliberately not handled as its own case here. A cross-build hits msix-packaging's
+# own Windows-SDK assumptions well beyond the fixes on our fork's branch (a WinRT-only PAL for
+# bundle support, and a still-unresolved mingw/combaseapi.h header interaction) - upstream itself
+# only ever builds for Windows with MSVC, never mingw. Left as future work if actually needed.
+if targetDistribId == 'Windows':
+    msix_packaging_platformOpts = ['-DWIN32=on']
+elif targetDistribId == 'Darwin':
+    msix_packaging_platformOpts = ['-DMACOS=on', '-DUSE_MSIX_SDK_ZLIB=on']
+elif targetDistribId == 'mingw':
+    abort("msix-packaging is know to not build correctly with mingw")
+else:
+    msix_packaging_platformOpts = [
+        '-DLINUX=on',
+    ] + msix_packaging_useSystemOpts
+
+msix_packaging_options = msix_packaging_platformOpts + [
+    '-DMSIX_TESTS=OFF',
+    '-DMSIX_SAMPLES=OFF',
+]
+
+ARTIFACTS += [
+    CMakeBuildArtifact('msix-packaging', ['zlib-artifact', 'openssl-artifact', 'xerces-artifact'],
+        stdGitSourceFromOptions('msix-packaging', 'https://github.com/hardening/msix-packaging.git', 'gcc-system-xerces'),
+        cmakeOpts=msix_packaging_options,
+        provides=['msix-packaging-artifact'],
+        toolchainArtifacts='c++'
+    ),
+]
