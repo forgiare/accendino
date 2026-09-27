@@ -90,7 +90,16 @@ class GitSource(Source):
     def checkout(self, target_dir: str, flog, refresh: bool = False) -> bool:
         ''' '''
         self.refreshed = False
+        if os.path.isdir(target_dir) and not os.listdir(target_dir):
+            # leftover from a failed or interrupted clone, let's retry it
+            logging.debug(f"==> {target_dir} is empty, cloning again")
+            os.rmdir(target_dir)
+
         if os.path.exists(target_dir):
+            if not os.path.exists(os.path.join(target_dir, '.git')):
+                logging.error(f"{target_dir} exists but is not a git checkout, please remove it")
+                return False
+
             if not refresh:
                 logging.debug(f"==> refreshing git dir {target_dir}")
                 return True
@@ -137,8 +146,15 @@ class GitSource(Source):
             cmd.append('--recurse-submodules')
 
         proc = subprocess.run(cmd, stdout=flog, stderr=flog)
-        self.refreshed = proc.returncode == 0
-        return proc.returncode == 0
+        if proc.returncode != 0:
+            logging.error(f"error cloning {self.url} in {target_dir}")
+            # don't leave an empty dir that would be taken for a valid checkout on next run
+            if os.path.isdir(target_dir) and not os.listdir(target_dir):
+                os.rmdir(target_dir)
+            return False
+
+        self.refreshed = True
+        return True
 
 
 class RemoteArchiveSource(Source):

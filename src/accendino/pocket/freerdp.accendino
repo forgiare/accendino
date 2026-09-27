@@ -70,14 +70,11 @@ if freerdp_fromSources:
         freerdp_ffmpeg_opts = ['-DWITH_FFMPEG=ON', '-DWITH_SWSCALE=ON']
 
         if distribId in ('Windows',):
-            # Even with VS, ffmpeg creates library with .a files, so name them explicitly
-            freerdp_ffmpeg_opts += [
-               '-DAVCODEC_LIBRARIES={prefix_posix}/lib/libavcodec.a', '-DAVCODEC_INCLUDE_DIRS={prefix_posix}/include',
-               '-DAVFORMAT_LIBRARIES={prefix_posix}/lib/libavformat.a', '-DAVFORMAT_INCLUDE_DIRS={prefix_posix}/include',
-               '-DAVUTIL_LIBRARIES={prefix_posix}/lib/libavutil.a', '-DAVUTIL_INCLUDE_DIRS={prefix_posix}/include',
-               '-DSWRESAMPLE_LIBRARIES={prefix_posix}/lib/libswresample.a', '-DSWRESAMPLE_INCLUDE_DIRS={prefix_posix}/include',
-               '-DSWSCALE_LIBRARIES={prefix_posix}/lib/libswscale.a', '-DSWSCALE_INCLUDE_DIRS={prefix_posix}/include'
-            ]
+            # ffmpeg can't build both static and shared libs with MSVC, so it only builds the DLLs and
+            # installs their import libraries in bin/ where FindFFmpeg doesn't look, so name them explicitly
+            for comp in ('avcodec', 'avformat', 'avutil', 'swresample', 'swscale'):
+                freerdp_ffmpeg_opts += [f'-D{comp.upper()}_LIBRARIES={{prefix_posix}}/bin/{comp}.lib',
+                                        f'-D{comp.upper()}_INCLUDE_DIRS={{prefix_posix}}/include']
 
     if getOption('freerdp.with_openh264', False):
         freerdp_deps.append('openh264-artifact')

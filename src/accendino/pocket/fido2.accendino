@@ -25,10 +25,21 @@ else:
     ]
 
 if stdBuildFromSourceTest('fido2', locals(), targetDistribId not in ('Ubuntu', 'Debian', 'RedHat', 'Fedora',)):
+    fido2_opts = ['-DBUILD_TESTS=OFF', '-DBUILD_MANPAGES=OFF']
+    if targetDistribId == 'Windows':
+        # under MSVC libfido2 doesn't use pkg-config and wants the location and names of its deps,
+        # the default library names (zlib1, crypto) don't match the ones from our zlib and openssl builds
+        fido2_opts += [
+            '-DCBOR_INCLUDE_DIRS={prefix}/include', '-DCBOR_LIBRARY_DIRS={prefix}/lib', '-DCBOR_BIN_DIRS={prefix}/bin',
+            '-DZLIB_INCLUDE_DIRS={prefix}/include', '-DZLIB_LIBRARY_DIRS={prefix}/lib', '-DZLIB_BIN_DIRS={prefix}/bin',
+            '-DCRYPTO_INCLUDE_DIRS={prefix}/include', '-DCRYPTO_LIBRARY_DIRS={prefix}/lib', '-DCRYPTO_BIN_DIRS={prefix}/bin',
+            '-DZLIB_LIBRARIES=z', '-DCRYPTO_LIBRARIES=libcrypto',
+        ]
+
     ARTIFACTS += [
         CMakeBuildArtifact('fido2', ['libcbor-artifact', 'zlib-artifact', 'openssl-artifact'],
             stdGitSourceFromOptions('fido2', 'https://github.com/Yubico/libfido2.git', 'main'),
-            ['-DBUILD_TESTS=OFF', '-DBUILD_MANPAGES=OFF'],
+            fido2_opts,
             provides=['fido2-artifact']
         ),
     ]
