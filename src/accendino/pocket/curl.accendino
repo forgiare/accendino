@@ -17,16 +17,18 @@ curl_fromSources = stdBuildFromSourceTest('curl', locals(), targetDistribId in (
 if curl_fromSources:
     include('zlib')
     include('openssl')
+    include('psl')
 
     curl_options = [
         '-DBUILD_TESTING=OFF',
         '-DBUILD_MISC_DOCS=OFF',
         '-DENABLE_CURL_MANUAL=OFF',
         '-DCURL_USE_OPENSSL=ON',
+        '-DCURL_USE_LIBPSL=ON',
     ]
 
     ARTIFACTS += [
-        CMakeBuildArtifact('curl', ['zlib-artifact', 'openssl-artifact'],
+        CMakeBuildArtifact('curl', ['zlib-artifact', 'openssl-artifact', 'psl-artifact'],
             stdGitSourceFromOptions('curl', 'https://github.com/curl/curl.git', 'curl-8_22_0'),
             cmakeOpts=curl_options,
             provides=['curl-artifact']
