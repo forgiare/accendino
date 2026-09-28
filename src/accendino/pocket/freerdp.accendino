@@ -148,6 +148,11 @@ if freerdp_fromSources:
     if targetDistribId in ('Windows', 'mingw',):
         FREERDP_opts += ['-DWITH_SHADOW=OFF']
 
+    if targetDistribId == 'Windows':
+        # since FreeRDP commit 7f59e0376 wfreerdp-server-cli doesn't link against freerdp-server and winpr
+        # anymore and fails to build, so skip the (unmaintained) Windows platform server
+        freerdp3_opts += ['-DWITH_PLATFORM_SERVER=OFF']
+
 
 
     #
