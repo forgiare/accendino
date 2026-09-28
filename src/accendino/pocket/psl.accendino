@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libpsl
+#
+
+psl_fromSources = stdBuildFromSourceTest('psl', locals(), targetDistribId in ('mingw', 'Windows', 'Darwin',))
+
+if psl_fromSources:
+    psl_options = [
+        '-Druntime=no',
+        '-Dbuiltin=true',
+        '-Dtests=false',
+        '-Ddocs=false',
+    ]
+
+    ARTIFACTS += [
+        MesonBuildArtifact('libpsl', [],
+            stdGitSourceFromOptions('psl', 'https://github.com/rockdaboot/libpsl.git', '0.21.5'),
+            mesonOpts=psl_options,
+            provides=['psl-artifact']
+        ),
+    ]
+else:
+    psl_pkgDeps = {
+        UBUNTU_LIKE: ['libpsl-dev'],
+        REDHAT_LIKE: ['libpsl-devel'],
+        'FreeBSD': ['libpsl'],
+    }
+
+    ARTIFACTS += [
+        DepsBuildArtifact('psl-artifact', [], pkgs=psl_pkgDeps)
+    ]

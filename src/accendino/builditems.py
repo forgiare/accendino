@@ -10,6 +10,14 @@ from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, Ru
     getArchLibDir
 
 
+# environment variables that change from one shell session to another (typically a new SSH
+# connection) without any impact on the build, they're ignored when checking for env drift
+VOLATILE_ENV_VARS = {
+    'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
+    'PWD', 'OLDPWD', 'SHLVL', '_', 'TERM_SESSION_ID', 'WINDOWID', 'XDG_SESSION_ID',
+    'SESSIONNAME', 'CLIENTNAME',
+}
+
 class BuildStepDump:
     def __init__(self):
         self.gitCommit = None
@@ -21,11 +29,10 @@ class BuildStepDump:
             return False
 
         # check environment
-        for k in self.env.keys():
-            if not k in other.env:
-                return False
-
-            if self.env[k] != other.env.get(k, None):
+        keys = set(self.env.keys()) | set(other.env.keys())
+        for k in keys - VOLATILE_ENV_VARS:
+            if self.env.get(k, None) != other.env.get(k, None):
+                logging.debug(f'environment variable {k} has changed since last prepare')
                 return False
 
         if len(self.args) != len(other.args):
@@ -43,7 +50,7 @@ class BuildStepDump:
                 cmds1 = cmds1.expand()
 
             if isinstance(cmds2, RunInShell):
-                cmds1 = cmds1.expand()
+                cmds2 = cmds2.expand()
 
             if len(cmds1) != len(cmds2):
                 return False
