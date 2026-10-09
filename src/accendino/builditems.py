@@ -10,6 +10,14 @@ from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, Ru
     getArchLibDir
 
 
+# environment variables that change from one shell session to another (typically a new SSH
+# connection) without any impact on the build, they're ignored when checking for env drift
+VOLATILE_ENV_VARS = {
+    'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
+    'PWD', 'OLDPWD', 'SHLVL', '_', 'TERM_SESSION_ID', 'WINDOWID', 'XDG_SESSION_ID',
+    'SESSIONNAME', 'CLIENTNAME',
+}
+
 class BuildStepDump:
     def __init__(self):
         self.gitCommit = None
@@ -21,11 +29,10 @@ class BuildStepDump:
             return False
 
         # check environment
-        for k in self.env.keys():
-            if not k in other.env:
-                return False
-
-            if self.env[k] != other.env.get(k, None):
+        keys = set(self.env.keys()) | set(other.env.keys())
+        for k in keys - VOLATILE_ENV_VARS:
+            if self.env.get(k, None) != other.env.get(k, None):
+                logging.debug(f'environment variable {k} has changed since last prepare')
                 return False
 
         if len(self.args) != len(other.args):
@@ -43,7 +50,7 @@ class BuildStepDump:
                 cmds1 = cmds1.expand()
 
             if isinstance(cmds2, RunInShell):
-                cmds1 = cmds1.expand()
+                cmds2 = cmds2.expand()
 
             if len(cmds1) != len(cmds2):
                 return False
@@ -145,6 +152,7 @@ class BuildArtifact(DepsBuildArtifact):
         self.srcObj = srcObj
         self.sourceDir = None
         self.buildDir = None
+        self.buildType = None
         self.extraEnv = extraEnv
         self.logFile = None
         self.prepare_cmds = prepare_cmds[:]
@@ -302,7 +310,11 @@ class BuildArtifact(DepsBuildArtifact):
     def init(self, config) -> bool:
         self.sourceDir = config.sourcesDir / self.name
 
-        dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{config.buildType}"
+        self.buildType = config.buildType
+        if self.name in config.debugArtifacts or config.debugArtifacts.intersection(self.provides):
+            self.buildType = 'debug'
+
+        dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{self.buildType}"
         self.buildDir = config.buildsDir / dirName / self.name
 
         os.makedirs(self.buildDir, exist_ok=True)
@@ -538,14 +550,12 @@ class BuildArtifact(DepsBuildArtifact):
                 install_targets = install_targets.split(',')
 
         if cmd in ('ninja', 'make', 'makeMsys2',):
-            maxJobs = 0
-            if parallelJobs:
-                maxJobs = config.maxJobs
-
-            if maxJobs == 0:
+            if not parallelJobs:
+                concurrentArgs = '-j1'
+            elif config.maxJobs == 0:
                 concurrentArgs = '-j'
             else:
-                concurrentArgs = f'-j{maxJobs}'
+                concurrentArgs = f'-j{config.maxJobs}'
 
             if cmd == 'makeMsys2':
                 for target in build_targets:
@@ -648,16 +658,19 @@ class CMakeBuildArtifact(BuildArtifact):
         self.parallelJobs = parallelJobs
 
     def prepare(self, config) -> bool:
+        cmakeBuildType = config.cmakeBuildType(self.buildType)
         cmake_cmd = ['cmake']
 
         if config.crossCompilation:
             fname = config.getCrossPlatformFile("cmake", config.distribId, config.targetDistrib, config.targetArch)
             cmake_cmd.append(f'-DCMAKE_TOOLCHAIN_FILE={fname}')
 
-        #  f'-DCMAKE_BUILD_TYPE={config.cmakeBuildType()}',
+        # CMAKE_BUILD_TYPE is used by single-config generators (Makefiles, Ninja), CMAKE_CONFIGURATION_TYPES
+        # by multi-config ones (Visual Studio)
         cmake_cmd += [
                '-DCMAKE_PREFIX_PATH={prefix_posix}/lib/cmake;{prefix_posix}/lib',
-                f'-DCMAKE_CONFIGURATION_TYPES={config.cmakeBuildType()}',
+                f'-DCMAKE_BUILD_TYPE={cmakeBuildType}',
+                f'-DCMAKE_CONFIGURATION_TYPES={cmakeBuildType}',
                '-DCMAKE_INSTALL_PREFIX={prefix_posix}',
                '-S', '{srcdir}',
                '-B', '{builddir}'
@@ -669,9 +682,15 @@ class CMakeBuildArtifact(BuildArtifact):
             (cmake_cmd, '{builddir}', 'running cmake')
         ]
 
+        # --parallel is translated by cmake to the generator's own option (-j for make/ninja, /m for msbuild);
+        # without it make based generators build serially
+        concurrentArgs = ['--parallel', '1']
+        if self.parallelJobs:
+            concurrentArgs = ['--parallel', f'{config.maxJobs}'] if config.maxJobs else ['--parallel']
+
         self.build_cmds = [
-            (['cmake', '--build', '{builddir}', '--config', config.cmakeBuildType()], '{builddir}', 'building'),
-            (['cmake', '--install', '{builddir}'], '{builddir}', 'installing'),
+            (['cmake', '--build', '{builddir}', '--config', cmakeBuildType] + concurrentArgs, '{builddir}', 'building'),
+            (['cmake', '--install', '{builddir}', '--config', cmakeBuildType], '{builddir}', 'installing'),
         ]
         return BuildArtifact.prepare(self, config)
 
@@ -860,7 +879,7 @@ class MesonBuildArtifact(BuildArtifact):
 
         cmd = [self.mesonPath, 'setup',
                '-Dprefix={prefix}',
-               f'-Dbuildtype={config.mesonBuildType()}',
+               f'-Dbuildtype={config.mesonBuildType(self.buildType)}',
         ]
 
         if config.crossCompilation:
@@ -868,6 +887,10 @@ class MesonBuildArtifact(BuildArtifact):
 
         if reconfigure:
             cmd += ["--reconfigure"]
+
+        # build both static and shared libraries unless the artifact asks for something else
+        if not any(opt.startswith(('-Ddefault_library=', '--default-library')) for opt in self.mesonOpts):
+            cmd += ['-Ddefault_library=both']
         cmd += self.mesonOpts
         cmd += [self.sourceDir]
 
@@ -875,13 +898,9 @@ class MesonBuildArtifact(BuildArtifact):
             (cmd, '{builddir}', 'running meson configure')
         ]
 
-        maxJobs = 0
+        concurrentArgs = ['-j', '1']
         if self.parallelJobs:
-            maxJobs = config.maxJobs
-
-        concurrentArgs = []
-        if maxJobs != 0:
-            concurrentArgs = ['-j', f'{maxJobs}']
+            concurrentArgs = ['-j', f'{config.maxJobs}'] if config.maxJobs else []
 
         self.build_cmds = [
             ([self.mesonPath, 'compile'] + concurrentArgs, '{builddir}', 'building'),

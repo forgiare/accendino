@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building iconv (win-iconv on windows platforms)
+#
+
+iconv_fromSources = stdBuildFromSourceTest('iconv', locals(), targetDistribId in ('mingw', 'Windows',))
+
+if iconv_fromSources:
+    iconv_options = [
+        '-DWIN_ICONV_BUILD_SHARED=ON',
+        '-DWIN_ICONV_BUILD_STATIC=OFF',
+        '-DWIN_ICONV_BUILD_EXECUTABLE=OFF',
+        '-DWIN_ICONV_BUILD_TEST=OFF',
+    ]
+
+    ARTIFACTS += [
+        CMakeBuildArtifact('win-iconv', [],
+            stdGitSourceFromOptions('iconv', 'https://github.com/win-iconv/win-iconv.git', 'v0.0.10'),
+            cmakeOpts=iconv_options,
+            provides=['iconv-artifact']
+        ),
+    ]
+else:
+    # iconv is part of the libc (glibc, FreeBSD) or of the base system (Darwin)
+    ARTIFACTS += [
+        DepsBuildArtifact('iconv-artifact', [])
+    ]

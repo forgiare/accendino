@@ -1,0 +1,69 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Retrieving the Chromium Embedded Framework (CEF) binary distribution and building libcef_dll_wrapper
+#
+#    options (in the [cef] section):
+#      * version: the CEF version as listed on https://cef-builds.spotifycdn.com/index.html
+#      * distribution: minimal (default) or standard (also contains Debug binaries and samples)
+#      * sha1: expected sha1 of the archive, needed to check the download when not using the default version
+#      * sandbox: enable the sandbox (on by default as in CEF)
+#      * runtime: Windows only, the C runtime of libcef_dll_wrapper (/MD by default, /MT is CEF's default)
+#
+#    the distribution is installed in the deploy tree (see cef/cef-install.cmake for details): headers in
+#    <prefix>/include/cef, libcef_dll_wrapper in <prefix>/lib, libcef and its runtime files in <prefix>/lib/cef
+#    (<prefix>/bin/cef on Windows), and a CEF package in <prefix>/lib/cmake/CEF so consumers using CMake can
+#    use find_package(CEF) and link with CEF::libcef_dll_wrapper. On Linux a cef.pc is also installed.
+#
+
+cef_defaultVersion = '154.0.34+g14c5a08+chromium-154.0.8037.98'
+cef_defaultSha1s = {
+    'linux64': '15c91ad767097217b2e82ba8b933fe30b134be69',
+    'windows64': 'be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d',
+    'macosx64': '51d90349e24360b8e0daecc2d026ad150c620db5',
+}
+
+if targetArch != 'x86_64':
+    abort(f'CEF: arch {targetArch} not supported yet')
+
+if targetDistribId == 'Windows':
+    cef_platform = 'windows64'
+elif targetDistribId == 'Darwin':
+    cef_platform = 'macosx64'
+elif targetDistribId in ('mingw', 'FreeBSD'):
+    abort(f'CEF: no binary distribution for {targetDistribId}')
+else:
+    cef_platform = 'linux64'
+
+cef_version = getOption('cef.version', cef_defaultVersion)
+cef_distribution = getOption('cef.distribution', 'minimal')
+
+cef_sha1 = getOption('cef.sha1', None)
+if cef_sha1 is None and cef_version == cef_defaultVersion and cef_distribution == 'minimal':
+    cef_sha1 = cef_defaultSha1s[cef_platform]
+
+cef_suffix = '' if cef_distribution == 'standard' else f'_{cef_distribution}'
+cef_url = f'https://cef-builds.spotifycdn.com/cef_binary_{cef_version}_{cef_platform}{cef_suffix}.tar.bz2'
+
+cef_installRules = findAsset('cef', 'cef-install.cmake')
+if cef_installRules is None:
+    abort('CEF: unable to find cef/cef-install.cmake')
+
+cef_options = [
+    f'-DCMAKE_PROJECT_INCLUDE={cef_installRules}',
+    '-DUSE_SANDBOX=' + ('ON' if getOption('cef.sandbox', True) else 'OFF'),
+]
+
+if cef_platform == 'windows64':
+    cef_options.append(f'-DCEF_RUNTIME_LIBRARY_FLAG={getOption("cef.runtime", "/MD")}')
+
+ARTIFACTS += [
+    CMakeBuildArtifact('cef', [],
+        RemoteArchiveSource(cef_url, strip_depth=1, checked_file='CMakeLists.txt', sha1=cef_sha1),
+        cmakeOpts=cef_options,
+        toolchainArtifacts='c,c++',
+        provides=['cef-artifact']
+    ),
+]
