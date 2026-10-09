@@ -12,6 +12,8 @@ _Accendino_ accepts the following command line arguments:
 * `--build-deps`: don't build artifact just do platform packages checks and installation
 * `--targets=<targets>`: a coma separated list of targets to build
 * `--build-type=<build type>`: kind of build, can be `release` or `debug`
+* `--build-as-debug=<artifacts>`: a coma separated list of artifacts (by name or by a name they provide) to build
+  in debug mode whatever the `--build-type` is. Can be given multiple times, the lists are merged
 * `--work-dir=<dir>`: the top directory where projects will be stored, current directory by default
 * `--resume-from=<target>`: resume the build starting at this target
 * `--refreshSources`: force updating git sources to their upstream branch, and rebuild any artifact whose
@@ -162,6 +164,9 @@ Some examples:
     dictionaries together, concatenating the package lists of keys present in both. For instance with `d1={'Ubuntu': ['pack1']}` and `d2={'Ubuntu': ['pack2'], 'Fedora': ['pack3']}`
     you get `{'Ubuntu': ['pack1', 'pack2'], 'Fedora': ['pack3']}`;
 * `abort(msg: str = None) -> None`: immediately stops the whole _Accendino_ run with exit code `1` showing the optional error message;
+* `findAsset(item: str, asset: str) -> str`: returns the absolute path of the `<item>/<asset>` file, searched like included accendino files,
+    or `None` if not found. The extra files needed by an accendino file are stored in a directory with the same name, for instance
+    `findAsset('cef', 'cef-install.cmake')` in `cef.accendino`;
 
 ### Objects
 

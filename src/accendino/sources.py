@@ -1,9 +1,12 @@
 import os
 import shutil
+import hashlib
 import subprocess
 
 from pathlib import Path
 from zenlog import log as logging
+
+ARCHIVE_MARKER_FILE = 'accendino.archive'
 
 
 class Source:
@@ -161,9 +164,15 @@ class RemoteArchiveSource(Source):
     ''' Code source that is checked out from a remote location '''
 
     def __init__(self, url: str, saveAs: str = None, compression_method: str = 'guess', strip_depth: int = 0,
-                 checked_file: str = 'aclocal.m4') -> None:
+                 checked_file: str = 'aclocal.m4', sha1: str = None, sha256: str = None) -> None:
         '''
             @param url: URL of the archive repo
+            @param saveAs: name of the downloaded archive (defaults to the last component of the url)
+            @param compression_method: how to extract the archive, 'guess' to deduce it from the url
+            @param strip_depth: number of leading path components to strip when extracting (tar archives)
+            @param checked_file: a file whose presence in the source dir tells that the archive is extracted
+            @param sha1: optional expected sha1 of the archive
+            @param sha256: optional expected sha256 of the archive
         '''
         Source.__init__(self, {
             'Ubuntu|Debian|Fedora|Redhat': ['curl'],
@@ -186,6 +195,19 @@ class RemoteArchiveSource(Source):
                     'Windows': ['choco/7z|path/7z']
                 },
 
+            ),
+            'tar.bz2': (['tar', f'--strip-components={strip_depth}', '-xjf'],
+                {
+                    'Ubuntu|Debian|Fedora|Redhat': ['tar', 'bzip2'],
+                    'Windows': ['path/tar']
+                },
+            ),
+            'tar.xz': (['tar', f'--strip-components={strip_depth}', '-xJf'],
+                {
+                    'Ubuntu|Debian': ['tar', 'xz-utils'],
+                    'Fedora|Redhat': ['tar', 'xz'],
+                    'Windows': ['path/tar']
+                },
             ),
             'tar': (['tar', f'--strip-components={strip_depth}', '-xf'],
                 {
@@ -210,6 +232,7 @@ class RemoteArchiveSource(Source):
         self.url = url
         self.compression = compression_method
         self.checked_file = checked_file
+        self.checksums = {k: v.lower() for k, v in (('sha1', sha1), ('sha256', sha256)) if v}
 
         compProps = None
         if compression_method == 'guess':
@@ -236,7 +259,7 @@ class RemoteArchiveSource(Source):
                 if k in self.pkgDeps:
                     self.pkgDeps[k] += v
                 else:
-                    self.pkgDeps[k] = [ v ]
+                    self.pkgDeps[k] = list(v)
 
             self.decompressCmd = compProps[0]
         else:
@@ -257,28 +280,76 @@ class RemoteArchiveSource(Source):
         return True
 
 
+    def checksumOk(self, path) -> bool:
+        ''' checks the archive against the expected checksums (if any) '''
+        for algo, expected in self.checksums.items():
+            h = hashlib.new(algo)
+            with open(path, 'rb') as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                    h.update(chunk)
+
+            if h.hexdigest() != expected:
+                logging.error(f'{algo} mismatch for {path}: expecting {expected}, got {h.hexdigest()}')
+                return False
+        return True
+
     def checkout(self, target_dir, flog, _refresh: bool = False) -> bool:
         self.refreshed = False
+
+        # the marker remembers which archive was extracted, so that changing the url (a new version
+        # for instance) triggers a fresh extraction instead of keeping the old content
+        markerPath = target_dir / ARCHIVE_MARKER_FILE
         checked_path = target_dir / self.checked_file
-        if os.path.exists(checked_path) and os.path.isfile(checked_path):
-            logging.debug(f'{self.checked_file} already exists meaning archive {self.saveAs} is already downloaded')
-            return True
+        if os.path.isfile(checked_path):
+            extracted = None
+            if os.path.exists(markerPath):
+                with open(markerPath, 'rt', encoding='utf8') as f:
+                    extracted = f.read().strip()
+
+            if extracted in (None, self.url):
+                logging.debug(f'{self.checked_file} already exists meaning archive {self.saveAs} is already downloaded')
+                return True
+
+            logging.info(f'archive changed ({extracted} -> {self.url}), extracting it again')
+            shutil.rmtree(target_dir)
+
+        os.makedirs(target_dir, exist_ok=True)
 
         archiveDir = target_dir / '..' / '..' / 'archives'
         if not os.path.exists(archiveDir):
             os.makedirs(archiveDir, exist_ok=True)
 
         saveAsPath = Path(archiveDir / self.saveAs).resolve()
-        retrieveCmd = ['curl', '-s', '-L', self.url, '-o', str(saveAsPath)]
 
-        if os.path.exists(saveAsPath):
-            retrieveCmd += ['-z', str(saveAsPath)]
+        if self.checksums and os.path.exists(saveAsPath) and self.checksumOk(saveAsPath):
+            logging.debug(f'{saveAsPath} already downloaded with the right checksum')
+        else:
+            partPath = saveAsPath.with_name(saveAsPath.name + '.part')
+            retrieveCmd = ['curl', '-s', '-f', '-L', self.url, '-o', str(partPath)]
 
-        logging.debug(f'running {" ".join(retrieveCmd)}')
-        proc = subprocess.run(retrieveCmd, stdout=flog, stderr=flog)
-        if proc.returncode != 0:
-            logging.error(f'error retrieving {self.url}')
-            return False
+            if os.path.exists(saveAsPath):
+                retrieveCmd += ['-z', str(saveAsPath)]
+
+            logging.debug(f'running {" ".join(retrieveCmd)}')
+            proc = subprocess.run(retrieveCmd, stdout=flog, stderr=flog)
+            if proc.returncode != 0:
+                logging.error(f'error retrieving {self.url}')
+                if os.path.exists(partPath):
+                    os.remove(partPath)
+                return False
+
+            # with -z curl doesn't write anything when the local copy is up to date
+            if os.path.exists(partPath):
+                os.replace(partPath, saveAsPath)
+
+            if self.checksums and not self.checksumOk(saveAsPath):
+                os.remove(saveAsPath)
+                return False
 
         self.refreshed = True
-        return self.decompress(target_dir, saveAsPath, flog)
+        if not self.decompress(target_dir, saveAsPath, flog):
+            return False
+
+        with open(markerPath, 'wt', encoding='utf8') as f:
+            f.write(self.url)
+        return True

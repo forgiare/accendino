@@ -29,6 +29,7 @@ def doHelp(args, is_error) -> int:
     print("\t--prefix=<prefix>: where to install")
     print("\t--targets=<targets>: a list of comma separated targets to build (by default full-ogon-freerdp2)")
     print("\t--build-type=[release|debug]: type of build (defaults to release)")
+    print("\t--build-as-debug=<artifacts>: a list of comma separated artifacts to build in debug mode, whatever the build type")
     print("\t--work-dir=<path>: a path to the working directory where sources are checked out and built")
     print("\t--options=<path>: a path to the build options file")
     print("\t--refreshSources: force updating git sources and rebuild artifacts whose sources changed")
@@ -127,6 +128,7 @@ class AccendinoConfig:
         self.debug = False
         self.buildWithPowershell = True
         self.buildType = 'release'
+        self.debugArtifacts = set()
         self.projectName = None
         self.workDir = pathlib.PurePath(os.getcwd())
         self.prefix = None
@@ -177,6 +179,11 @@ class AccendinoConfig:
             if ret:
                 self.includedFiles.append(fname)
             return ret
+
+        def findAssetFn(item: str, asset: str) -> str:
+            ''' returns the absolute path of the <item>/<asset> file searched like included files, None if not found '''
+            fpath = self.findSourceFile(os.path.join(item, asset), False)
+            return os.path.abspath(fpath) if fpath else None
 
 
         def pickDeps(name: str) -> T.List[T.Any]:
@@ -271,6 +278,7 @@ class AccendinoConfig:
             'CustomCommandBuildArtifact': CustomCommandBuildArtifact,
             'BuildArtifact': BuildArtifact,
             'include': includeFn,
+            'findAsset': findAssetFn,
             'getOption': getOption,
             'checkDistrib': checkDistrib,
             'pickDeps': pickDeps,
@@ -310,21 +318,23 @@ class AccendinoConfig:
 
         return None
 
-    def cmakeBuildType(self) -> str:
+    def cmakeBuildType(self, buildType: str = None) -> str:
         ''' '''
-        if self.buildType == 'release':
+        buildType = buildType or self.buildType
+        if buildType == 'release':
             return 'Release'
 
-        if self.buildType == 'debug':
+        if buildType == 'debug':
             return 'Debug'
 
-        raise Exception(f"{self.buildType} build type not supported for cmake")
+        raise Exception(f"{buildType} build type not supported for cmake")
 
-    def mesonBuildType(self) -> str:
+    def mesonBuildType(self, buildType: str = None) -> str:
         ''' '''
-        if self.buildType in ['release', 'debug']:
-            return self.buildType
-        raise Exception(f"{self.buildType} build type not supported for meson")
+        buildType = buildType or self.buildType
+        if buildType in ['release', 'debug']:
+            return buildType
+        raise Exception(f"{buildType} build type not supported for meson")
 
     def getBuildItem(self, name: str) -> BuildArtifact:
         ''' '''
@@ -420,8 +430,9 @@ class AccendinoConfig:
 
         return 0
 
-    def createBuildPlan(self, itemsToBuild, buildPlan) -> None:
-        ''' '''
+    def createBuildPlan(self, itemsToBuild, buildPlan) -> bool:
+        ''' computes the ordered build plan, returns False if some targets or dependencies can't be resolved '''
+        missing = []
 
         def addBuildItems(items: T.List[str], buildPlan: T.List[str], provided: T.List[str]):
             for item in items:
@@ -440,12 +451,15 @@ class AccendinoConfig:
                         else:
                             provided.append(itemObj.provides)
 
-                else:
+                elif item not in missing:
                     logging.error(f"unable to find build dependency {item}")
+                    missing.append(item)
 
         plan = []
         provided = []
         addBuildItems(itemsToBuild, plan, provided)
+        if missing:
+            return False
 
         for itemStr in plan:
             item = self.getBuildItem(itemStr)
@@ -453,7 +467,7 @@ class AccendinoConfig:
                 buildPlan.append(item)
             else:
                 buildPlan.append(itemStr)
-
+        return True
 
     def readSource(self, fname: str, include_once: bool) -> bool:
         ''' '''
@@ -567,6 +581,8 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
         if config.buildType not in BUILD_TYPES:
             print(f"invalid build type {config.buildType}")
             return _ARGS_ERROR
+    elif option in ('--build-as-debug',):
+        config.debugArtifacts.update(v.strip() for v in value.split(',') if v.strip())
     elif option in ('--targets',):
         config.targets = value.split(',')
     elif option in ('--buildWithPowershell',):
@@ -622,7 +638,7 @@ def run(args: T.List[str]) -> int:
     config = AccendinoConfig()
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
-        "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "options=",
+        "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "build-as-debug=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
         "buildWithPowershell", "version", "refreshSources", "refresh"
     ])
@@ -676,6 +692,10 @@ def run(args: T.List[str]) -> int:
             return 2
     config.finalizeConfig()
 
+    for name in config.debugArtifacts:
+        if not config.getBuildItem(name):
+            logging.warning(f"--build-as-debug: unknown artifact {name}")
+
     retCode = createWorkTree(config)
     if retCode:
         return retCode
@@ -687,7 +707,9 @@ def run(args: T.List[str]) -> int:
             buildList.append(item)
 
     buildPlan = []
-    config.createBuildPlan(config.targets, buildPlan)
+    if not config.createBuildPlan(config.targets, buildPlan):
+        logging.error("unresolved targets or dependencies, aborting")
+        return 7
     if config.debug:
         items = []
         for i in buildPlan:

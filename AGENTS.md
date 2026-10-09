@@ -69,7 +69,9 @@ Everything lives under `src/accendino/`:
   language), `treatPackageDeps`/`mergePkgDeps`.
 - **`pocket/*.accendino`** — the built-in library of reusable accendino files for common dependencies
   (zlib, openssl, ffmpeg, wayland, sdl2/3, freerdp, fido2, ...), searched via `ACCENDINO_PATH` env var
-  then this pocket dir. Top-level `*.accendino` files (`ogon.accendino`, `forgiare.accendino`,
+  then this pocket dir. Extra files a pocket recipe needs (scripts, cmake snippets, patches, ...) go in a
+  directory named after the recipe, e.g. `pocket/cef/cef-install.cmake` for `cef.accendino`, and are
+  located with `findAsset('cef', 'cef-install.cmake')`. Top-level `*.accendino` files (`ogon.accendino`, `forgiare.accendino`,
   `weston.accendino`) are example/real "root" build definitions that `include()` pocket files.
 
 An accendino file is plain Python `exec()`'d with a curated set of injected names (see
