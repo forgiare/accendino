@@ -76,7 +76,8 @@ if sdl3_fromSource:
         sdl3_options.append('-DSDLIMAGE_WEBP=OFF')
 
     ARTIFACTS += [
-        CMakeBuildArtifact('SDL3', [], GitSource('https://github.com/libsdl-org/SDL.git', 'release-3.4.x'),
+        CMakeBuildArtifact('SDL3', [],
+            stdGitSourceFromOptions('SDL3', 'https://github.com/libsdl-org/SDL.git', 'release-3.4.18'),
             ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],
             provides=['SDL3-artifact'],
             pkgs=sdl3_pkgDeps

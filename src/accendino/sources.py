@@ -118,10 +118,11 @@ class GitSource(Source):
                 logging.error(f"error fetching {self.url} in {target_dir}")
                 return False
 
-            proc = subprocess.run(['git', 'reset', '--hard', f'origin/{self.branch}'], cwd=target_dir,
+            # FETCH_HEAD rather than origin/<branch> so that this also works when branch is a tag
+            proc = subprocess.run(['git', 'reset', '--hard', 'FETCH_HEAD'], cwd=target_dir,
                                    stdout=flog, stderr=flog)
             if proc.returncode != 0:
-                logging.error(f"error resetting {target_dir} to origin/{self.branch}")
+                logging.error(f"error resetting {target_dir} to {self.branch}")
                 return False
 
             if self.recurse_submodules:
