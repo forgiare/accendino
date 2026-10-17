@@ -196,7 +196,7 @@ Some examples:
     in the _Accendino_ sources directory, otherwise the whole source tree is copied;
 * `RemoteArchiveSource(url: str, saveAs: str = None, compression_method: str = 'guess', strip_depth: int = 0, checked_file: str = 'aclocal.m4)`: sources
     contained in a remote archive. The archive will be downloaded and then decompressed. `strip_depth` allows to strip the version directory if any (like if the archive expands
-    to `libressl-1.4.2/...`);
+    to `libressl-1.4.2/...`), it works for tar and zip archives;
 
 ### Platform packages dependencies
 Platform packages dependencies are expressed as a `dict` with the key that is the target distribution. It takes in account
@@ -261,7 +261,9 @@ Specific build artifacts objects and their signatures:
 
 * `DepsBuildArtifact(name: str, deps=[], provides=[], pkgs={})`: a meta build artifact that can used to group other build artifacts
 * `BuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[])`: a generic build artifact with prepare commands and build commands
-* `CMakeBuildArtifact(name: str, deps, srcObj, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that uses `cmake` to be built
+* `CMakeBuildArtifact(name: str, deps, srcObj, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={}, cmakeProjectDir='{srcdir}')`: a build artifact that uses `cmake` to be built.
+    `cmakeProjectDir` is the directory of the `CMakeLists.txt` to use, by default the root of the sources. It can point to an asset (see `findAsset()`) to install a prebuilt
+    distribution that doesn't have a CMake project, the sources directory is then available as `{srcdir}` in `cmakeOpts`
 * `QMakeBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={})`: a build artifact relying on `qmake` / `make` to build
 * `AutogenBuildArtifact(name: str, deps, srcObj, autogenArgs=[], noconfigure=False, isAutogen=True, configureArgs=[], runInstallDir=None, extraEnv={}, provides=[], pkgs={}`:
     a build artifact that relies on `autotools` / `make` to build

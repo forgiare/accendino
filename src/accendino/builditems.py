@@ -635,7 +635,7 @@ class CMakeBuildArtifact(BuildArtifact):
     ''' cmake based build item '''
 
     def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={},
-                 toolchainArtifacts='c') -> None:
+                 toolchainArtifacts='c', cmakeProjectDir='{srcdir}') -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -646,6 +646,8 @@ class CMakeBuildArtifact(BuildArtifact):
             @param cmakeOpts:
             @param parallelJobs:
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param cmakeProjectDir: directory containing the CMakeLists.txt, when it's not at the root of the sources
+                    (a project shipped as an accendino asset to build or install a prebuilt distribution for instance)
         '''
         extra = {
             'Ubuntu|Debian|Redhat|Fedora|Arch|FreeBSD|Darwin': ['cmake']
@@ -656,6 +658,7 @@ class CMakeBuildArtifact(BuildArtifact):
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
+        self.cmakeProjectDir = cmakeProjectDir
 
     def prepare(self, config) -> bool:
         cmakeBuildType = config.cmakeBuildType(self.buildType)
@@ -672,7 +675,7 @@ class CMakeBuildArtifact(BuildArtifact):
                 f'-DCMAKE_BUILD_TYPE={cmakeBuildType}',
                 f'-DCMAKE_CONFIGURATION_TYPES={cmakeBuildType}',
                '-DCMAKE_INSTALL_PREFIX={prefix_posix}',
-               '-S', '{srcdir}',
+               '-S', self.cmakeProjectDir,
                '-B', '{builddir}'
         ]
 

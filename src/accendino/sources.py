@@ -1,6 +1,7 @@
 import os
 import shutil
 import hashlib
+import zipfile
 import subprocess
 
 from pathlib import Path
@@ -170,7 +171,7 @@ class RemoteArchiveSource(Source):
             @param url: URL of the archive repo
             @param saveAs: name of the downloaded archive (defaults to the last component of the url)
             @param compression_method: how to extract the archive, 'guess' to deduce it from the url
-            @param strip_depth: number of leading path components to strip when extracting (tar archives)
+            @param strip_depth: number of leading path components to strip when extracting (tar and zip archives)
             @param checked_file: a file whose presence in the source dir tells that the archive is extracted
             @param sha1: optional expected sha1 of the archive
             @param sha256: optional expected sha256 of the archive
@@ -216,12 +217,8 @@ class RemoteArchiveSource(Source):
                     'Windows': ['choco/7zip|path/7z']
                 },
             ),
-            'zip': (['unzip', '-o'],
-                {
-                    'Ubuntu|Debian|Fedora|Redhat': ['unzip'],
-                    'Windows': ['choco/7z|path/7z']
-                },
-            ),
+            # extracted with python's zipfile module, see _extractZip()
+            'zip': ([], {}),
             '7z': (['7z', 'x'],
                 {
                     'Ubuntu|Debian|Fedora|Redhat': ['unzip'],
@@ -232,6 +229,7 @@ class RemoteArchiveSource(Source):
 
         self.url = url
         self.compression = compression_method
+        self.stripDepth = strip_depth
         self.checked_file = checked_file
         self.checksums = {k: v.lower() for k, v in (('sha1', sha1), ('sha256', sha256)) if v}
 
@@ -262,7 +260,7 @@ class RemoteArchiveSource(Source):
                 else:
                     self.pkgDeps[k] = list(v)
 
-            self.decompressCmd = compProps[0]
+            self.decompressCmd = compProps[0] or self._extractZip
         else:
             if compression_method:
                 logging.error(f'unknown compression method {compression_method}')
@@ -272,12 +270,52 @@ class RemoteArchiveSource(Source):
         if self.decompressCmd is None:
             return True
 
+        if callable(self.decompressCmd):
+            return self.decompressCmd(target_dir, sourcePath, flog)
+
         extractCmd = self.decompressCmd + [ str(sourcePath) ]
         logging.debug(f'running {" ".join(extractCmd)} in {target_dir}')
         proc = subprocess.run(extractCmd, cwd=target_dir, stdout=flog, stderr=flog)
         if proc.returncode != 0:
             logging.error(f'error extracting {sourcePath} in {target_dir}')
             return False
+        return True
+
+
+    def _extractZip(self, target_dir, sourcePath, flog) -> bool:
+        ''' extracts a zip archive honoring strip_depth, without needing an external tool '''
+        logging.debug(f'extracting {sourcePath} in {target_dir}')
+        targetDir = Path(target_dir).resolve()
+        try:
+            with zipfile.ZipFile(sourcePath) as z:
+                for info in z.infolist():
+                    parts = [p for p in info.filename.replace('\\', '/').split('/') if p not in ('', '.')]
+                    if any(p == '..' or ':' in p for p in parts):
+                        logging.error(f'refusing to extract {info.filename} from {sourcePath}: path goes outside of the target directory')
+                        return False
+
+                    parts = parts[self.stripDepth:]
+                    if not parts:
+                        continue
+
+                    dest = targetDir.joinpath(*parts)
+                    if info.is_dir():
+                        os.makedirs(dest, exist_ok=True)
+                        continue
+
+                    os.makedirs(dest.parent, exist_ok=True)
+                    with z.open(info) as src, open(dest, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+
+                    # unix permissions are only stored by archivers running on unix
+                    mode = (info.external_attr >> 16) & 0o777
+                    if info.create_system == 3 and mode:
+                        os.chmod(dest, mode)
+        except (zipfile.BadZipFile, OSError) as e:
+            flog.write(f'error extracting {sourcePath}: {e}\n')
+            logging.error(f'error extracting {sourcePath} in {target_dir}: {e}')
+            return False
+
         return True
 
 
