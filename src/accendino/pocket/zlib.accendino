@@ -25,21 +25,30 @@ if targetDistribId == 'mingw':
     else:
         zlib_fromSources = True
 
-if targetDistribId in ('Windows', 'Darwin'):
+if targetDistribId in ('Windows', 'Darwin', 'emscripten'):
     # macOS ships zlib as a system library but without a pkgconfig file, so build
     # our own to get one that other CMake/pkg-config based artifacts (eg fido2) can find
     zlib_fromSources = True
 
 if zlib_fromSources:
     zlib_src = stdGitSourceFromOptions('zlib', 'https://github.com/madler/zlib.git', 'v1.3.1.2')
-    ARTIFACTS += [
-        CMakeBuildArtifact('zlib', [], zlib_src,
-            cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
-        ),
-        CMakeBuildArtifact('zlib-static', [], zlib_src,
-            cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=OFF']
-        ),
-    ]
+    if targetDistribId == 'emscripten':
+        # no shared library in WebAssembly, and zlib builds one unless told otherwise
+        ARTIFACTS += [
+            CMakeBuildArtifact('zlib', [], zlib_src,
+                cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DZLIB_BUILD_TESTING=OFF', '-DZLIB_BUILD_SHARED=OFF'],
+                provides=['zlib-artifact']
+            ),
+        ]
+    else:
+        ARTIFACTS += [
+            CMakeBuildArtifact('zlib', [], zlib_src,
+                cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF'], provides=['zlib-artifact']
+            ),
+            CMakeBuildArtifact('zlib-static', [], zlib_src,
+                cmakeOpts=['-DZLIB_BUILD_EXAMPLES=OFF', '-DBUILD_SHARED_LIBS=OFF']
+            ),
+        ]
 
 else:
     ARTIFACTS += [

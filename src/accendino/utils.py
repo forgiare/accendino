@@ -168,12 +168,19 @@ def mergePkgDeps(d1: T.Dict[str, T.Any], d2: T.Dict[str, T.Any]) -> T.Dict[str, 
     return ret
 
 
-def doMingwCrossDeps(distribs: T.List[str], deps: T.List[T.Any], target: T.Dict[str, T.Any]):
+CROSS_TARGETS = (('mingw', 'x86_64'), ('mingw', 'i686'), ('emscripten', 'wasm32'))
+
+def doCrossDeps(distribs: T.List[str], deps: T.List[T.Any], target: T.Dict[str, T.Any]):
+    ''' adds deps to the package requirements of all the cross targets (mingw, emscripten) of the given
+        host distribs '''
     for d in distribs:
-        for arch in ('x86_64', 'i686',):
-            key = f'{d}->mingw@{arch}'
+        for targetDistrib, arch in CROSS_TARGETS:
+            key = f'{d}->{targetDistrib}@{arch}'
             baseV = target.get(key, [])
             target[key] = baseV + deps[:]
+
+# kept for accendino files that may use the old name
+doMingwCrossDeps = doCrossDeps
 
 
 class NativePath:
@@ -242,7 +249,7 @@ def is_exact_instance(obj, klass):
     return s1 == s2
 
 def getArchLibDir(distribId: str, archId: str) -> str:
-    if distribId == 'mingw':
+    if distribId in ('mingw', 'emscripten'):
         return None
 
     OS_KEYS = {

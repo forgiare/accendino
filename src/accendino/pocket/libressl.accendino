@@ -8,10 +8,15 @@
 include('zlib')
 
 
+libressl_opts = []
+if targetDistribId == 'emscripten':
+    # no programs in the browser
+    libressl_opts = ['-DLIBRESSL_APPS=OFF', '-DLIBRESSL_TESTS=OFF']
+
 ARTIFACTS += [
     CMakeBuildArtifact('libressl', ['zlib-artifact'],
         RemoteArchiveSource('https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-4.3.1.tar.gz', strip_depth=1), # GitSource('https://github.com/libressl/portable.git', 'v4.3.1'),
-        [], provides='openssl',
+        libressl_opts, provides='openssl',
         pkgs = {    }
     ),
 ]

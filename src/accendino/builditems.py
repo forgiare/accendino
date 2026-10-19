@@ -6,7 +6,7 @@ import typing as T
 
 from zenlog import log as logging
 from accendino.sources import Source
-from accendino.utils import mergePkgDeps, treatPackageDeps, doMingwCrossDeps, RunInShell, as_msys2_path, \
+from accendino.utils import mergePkgDeps, treatPackageDeps, doCrossDeps, RunInShell, as_msys2_path, \
     getArchLibDir
 
 
@@ -248,9 +248,11 @@ class BuildArtifact(DepsBuildArtifact):
             pkg_config_path += ':{prefix_posix}/{libdir}/' + archLibDir + '/pkgconfig'
             pkg_config_path += f':/usr/lib/{archLibDir}/pkgconfig'
 
-        pkg_config_path += ':/usr/share/pkgconfig'
-        if orig_pkg_config_path:
-            pkg_config_path += ":" + orig_pkg_config_path
+        # host .pc files must never satisfy a WebAssembly build
+        if config.targetDistrib != 'emscripten':
+            pkg_config_path += ':/usr/share/pkgconfig'
+            if orig_pkg_config_path:
+                pkg_config_path += ":" + orig_pkg_config_path
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,
@@ -652,7 +654,7 @@ class CMakeBuildArtifact(BuildArtifact):
         extra = {
             'Ubuntu|Debian|Redhat|Fedora|Arch|FreeBSD|Darwin': ['cmake']
         }
-        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build', 'make'], extra)
+        doCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build', 'make'], extra)
         pkgs = mergePkgDeps(pkgs, extra)
 
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
@@ -695,6 +697,11 @@ class CMakeBuildArtifact(BuildArtifact):
             (['cmake', '--build', '{builddir}', '--config', cmakeBuildType] + concurrentArgs, '{builddir}', 'building'),
             (['cmake', '--install', '{builddir}', '--config', cmakeBuildType], '{builddir}', 'installing'),
         ]
+
+        if config.targetDistrib == 'emscripten':
+            # install(TARGETS) doesn't install the .wasm module of executables
+            script = config.crossFileDir / 'emscripten-install-wasm.cmake'
+            self.build_cmds.append((['cmake', '-DBUILD_DIR={builddir}', '-P', str(script)], '{builddir}', 'installing wasm modules'))
         return BuildArtifact.prepare(self, config)
 
 
@@ -835,15 +842,15 @@ class MesonBuildArtifact(BuildArtifact):
             'Arch|FreeBSD|Darwin': ['ninja'],
         }
 
-        mingwCrossDeps = ['ninja-build']
+        crossDeps = ['ninja-build']
 
         if mesonVersion == 'system':
             extra['Ubuntu|Debian|Redhat|Fedora'].append('meson')
             extra['Arch|FreeBSD|Darwin'].append('meson')
 
-            mingwCrossDeps.append('meson')
+            crossDeps.append('meson')
 
-        doMingwCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], mingwCrossDeps, extra)
+        doCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], crossDeps, extra)
 
         pkgs = mergePkgDeps(pkgs, extra)
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
@@ -891,9 +898,10 @@ class MesonBuildArtifact(BuildArtifact):
         if reconfigure:
             cmd += ["--reconfigure"]
 
-        # build both static and shared libraries unless the artifact asks for something else
+        # build both static and shared libraries unless the artifact asks for something else, emscripten
+        # has no shared libraries
         if not any(opt.startswith(('-Ddefault_library=', '--default-library')) for opt in self.mesonOpts):
-            cmd += ['-Ddefault_library=both']
+            cmd += ['-Ddefault_library=static' if config.targetDistrib == 'emscripten' else '-Ddefault_library=both']
         cmd += self.mesonOpts
         cmd += [self.sourceDir]
 

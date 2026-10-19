@@ -75,19 +75,26 @@ if sdl3_fromSource:
     else:
         sdl3_options.append('-DSDLIMAGE_WEBP=OFF')
 
+    sdl3_extraOptions = []
+    sdl3_ttf_extraOptions = []
+    if targetDistribId == 'emscripten':
+        # FreeRDP's client runs with pthreads in the browser
+        sdl3_extraOptions = ['-DSDL_PTHREADS=ON']
+        # no color emoji in the browser client
+        sdl3_ttf_extraOptions = ['-DSDLTTF_PLUTOSVG=OFF']
+
     ARTIFACTS += [
         CMakeBuildArtifact('SDL3', [],
             stdGitSourceFromOptions('SDL3', 'https://github.com/libsdl-org/SDL.git', 'release-3.4.18'),
-            ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'],
+            ['-DSDL_TEST=OFF', '-DSDL_TESTS=OFF', '-DSDL_STATIC_PIC=ON'] + sdl3_extraOptions,
             provides=['SDL3-artifact'],
             pkgs=sdl3_pkgDeps
         ),
 
         CMakeBuildArtifact('SDL3_ttf', ['zlib-artifact', 'SDL3'],
             GitSource('https://github.com/libsdl-org/SDL_ttf.git', 'release-3.2.x', shallow_submodules=True, recurse_submodules=True),
-            ['-DSDL3TTF_FREETYPE=ON', '-DSDL3TTF_FREETYPE_VENDORED=ON',
-             '-DSDL3TTF_HARFBUZZ=ON', '-DSDL3TTF_HARFBUZZ_VENDORED=ON',
-             '-DSDLTTF_VENDORED=ON', '-DFT_DISABLE_ZLIB=OFF', '-DSDL3TTF_SAMPLES=OFF'],
+            ['-DSDLTTF_HARFBUZZ=ON', '-DSDLTTF_VENDORED=ON', '-DFT_DISABLE_ZLIB=OFF', '-DSDLTTF_SAMPLES=OFF']
+                + sdl3_ttf_extraOptions,
             provides=['SDL3_ttf-artifact']
         ),
 

@@ -41,6 +41,11 @@ jobs:
                 targets: freerdp3
                 extraArgs: --targetDistrib=mingw64  --options=ci/build-options-ci.ini
                 isMingw: yes
+              - descr: Emscripten build of FreeRDP's SDL3 client
+                os: Ubuntu-24.04
+                file: freerdp.accendino
+                targets: freerdp3
+                extraArgs: --targetDistrib=emscripten
             
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:

@@ -317,6 +317,119 @@ class MingwToolChain(IToolChain):
 
 
 
+EMSDK_DEFAULT_VERSION = '6.0.11'
+
+class EmscriptenToolChain(IToolChain):
+    ''' Toolchain with emscripten (WebAssembly), using the emsdk pointed by $EMSDK or an emsdk
+        installed in the tools directory
+
+        options (in the [emscripten] section):
+            * version: the emsdk version to install when $EMSDK is not set
+            * pthreads: compile everything with -pthread (on by default, needed for shared memory)
+    '''
+
+    def __init__(self, config):
+        IToolChain.__init__(self, 'emscripten', config)
+
+        # emsdk is downloaded by emsdk itself, it only needs these on the host
+        emsdkDeps = {
+            'Ubuntu|Debian': ['git', 'python3', 'xz-utils', 'tar'],
+            'Fedora|Redhat': ['git', 'python3', 'xz', 'tar'],
+        }
+        crossDeps = {}
+        for k, v in emsdkDeps.items():
+            for distrib in k.split('|'):
+                crossDeps[f'{distrib}->emscripten@wasm32'] = v
+
+        self.artifactRequires = {
+            'c': crossDeps,
+            'c++': crossDeps,
+        }
+        self.emsdkDir = None
+        self.extraEnvMap = None
+
+    def _getOption(self, name: str, default):
+        return self.config.context['getOption'](f'emscripten.{name}', default)
+
+    def _installEmsdk(self, emsdkDir: pathlib.Path, version: str) -> bool:
+        versionMarker = emsdkDir / 'accendino.version'
+        if os.path.exists(versionMarker):
+            with open(versionMarker, 'rt', encoding='utf8') as f:
+                if f.read().strip() == version:
+                    logging.debug(f'emsdk {version} already installed in {emsdkDir}')
+                    return True
+
+        if not os.path.exists(emsdkDir / 'emsdk'):
+            os.makedirs(emsdkDir.parent, exist_ok=True)
+            cmds = [['git', 'clone', 'https://github.com/emscripten-core/emsdk.git', str(emsdkDir)]]
+        else:
+            cmds = [['git', '-C', str(emsdkDir), 'pull']]
+
+        cmds += [
+            [str(emsdkDir / 'emsdk'), 'install', version],
+            [str(emsdkDir / 'emsdk'), 'activate', version],
+        ]
+
+        logging.info(f' * installing emsdk {version} in {emsdkDir}')
+        for cmd in cmds:
+            logging.debug(f'running {" ".join(cmd)}')
+            if subprocess.run(cmd, cwd=emsdkDir.parent, check=False).returncode != 0:
+                logging.error(f'error running {" ".join(cmd)}')
+                return False
+
+        with open(versionMarker, 'wt', encoding='utf8') as f:
+            f.write(version)
+        return True
+
+    def activate(self) -> bool:
+        emsdk = os.environ.get('EMSDK', None)
+        if emsdk:
+            logging.debug(f' * using emsdk from $EMSDK={emsdk}')
+            self.emsdkDir = pathlib.Path(emsdk)
+        else:
+            self.emsdkDir = pathlib.Path(self.config.toolsDir) / 'emsdk'
+            if not self._installEmsdk(self.emsdkDir, self._getOption('version', EMSDK_DEFAULT_VERSION)):
+                return False
+
+        # source emsdk_env.sh once to catch the environment it sets (PATH, EMSDK, EMSDK_NODE, ...). It is sourced
+        # from the emsdk directory as it can't find its own location in a plain POSIX sh. The dumps are NUL
+        # separated as values may contain new lines or '='
+        script = f'env -0; printf "\\0"; cd "{self.emsdkDir}" && . ./emsdk_env.sh >/dev/null 2>&1; env -0'
+        p = subprocess.run(['sh', '-c', script], stdout=subprocess.PIPE, encoding='utf-8', check=False)
+        if p.returncode != 0:
+            logging.error(f'error retrieving emsdk environment variables, errorCode={p.returncode}')
+            return False
+
+        before, after = p.stdout.split('\0\0', 1)
+        envBefore = dict(item.split('=', 1) for item in before.split('\0') if '=' in item)
+        envAfter = dict(item.split('=', 1) for item in after.split('\0') if '=' in item)
+        self.extraEnvMap = {k: v for k, v in envAfter.items()
+                            if envBefore.get(k) != v and k not in ('_', 'PWD', 'OLDPWD')}
+        if 'EMSDK' not in self.extraEnvMap and not emsdk:
+            logging.error(f'{self.emsdkDir / "emsdk_env.sh"} did not set EMSDK')
+            return False
+        self.extraEnvMap['EMSDK'] = str(self.emsdkDir)
+
+        sysrootPkgConfig = self.emsdkDir / 'upstream' / 'emscripten' / 'cache' / 'sysroot' / 'lib' / 'pkgconfig'
+        self.extraEnvMap['PKG_CONFIG_LIBDIR'] = sysrootPkgConfig.as_posix()
+
+        if self._getOption('pthreads', True):
+            # with shared memory every object has to be compiled with -pthread
+            for k in ('CFLAGS', 'CXXFLAGS', 'LDFLAGS'):
+                self.extraEnvMap[k] = (os.environ.get(k, '') + ' -pthread').strip()
+        return True
+
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        ret = dict(self.extraEnvMap or {})
+        ret.update({'AR': 'emar', 'RANLIB': 'emranlib'})
+        for artifact in artifacts:
+            if artifact == 'c':
+                ret['CC'] = 'emcc'
+            elif artifact == 'c++':
+                ret['CXX'] = 'em++'
+        return ret
+
+
 class DefaultToolChain(IToolChain):
     ''' Toolchain that does some smart default depending '''
 
@@ -363,6 +476,7 @@ TOOLCHAINS = {
     'clang': ClangToolChain,
     'vs': VsToolChain,
     'mingw': MingwToolChain,
+    'emscripten': EmscriptenToolChain,
     'none': IToolChain,
 }
 

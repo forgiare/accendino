@@ -22,6 +22,12 @@ _Accendino_ accepts the following command line arguments:
   ones), even if they were already built
 * `--project=<name>`: sets a project name (used to store all items of this project in the same tree), "work" by default
 * `--options=<path>`: path to an ini file containing build options
+* `--targetDistrib=<distrib>`: cross compile for another platform: `mingw32` / `mingw64` (Windows binaries built with
+  mingw) or `emscripten` (WebAssembly for the browser or node, see [Building for emscripten](#building-for-emscripten)).
+  These also set the target arch and the toolchain
+* `--targetArch=<arch>`: the target architecture (`i686`, `x86_64` or `wasm32`), the local one by default
+* `--toolchain=<name>`: the toolchain to use: `default` (autodetected), `gcc`, `clang`, `vs`, `vs/<flavor>`, `mingw`
+  or `emscripten`
 * `<accendino file>`: the name of the root _Accendino_ file to load
 
 _Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like period separated string of location where
@@ -93,7 +99,7 @@ _Accendino_ reads a source file and interprets it as a python file and when done
 * `PROJECT : str` : an optional project name, it allows to store all the build items (sources and binaries) in a specific directory. Like the `--project` command line argument
 * `CROSS_PLATFORM_FILE_CHOOSER : Callable` : a function with the signature `(builder: str, localDistrib : str, distrib : str, arch: str) -> str`, that aims to return the path for
      a cross compilation file for the given `builder` (can be `cmake` or `meson` for now) and the given arch. If not specified it contains a default function that
-     will work for `mingw[32|64]` builds
+     will work for `mingw[32|64]` and `emscripten` builds
 
 When interpreting the source file _Accendino_ provides some useful variables and functions to the source file:
 
@@ -104,7 +110,7 @@ When interpreting the source file _Accendino_ provides some useful variables and
 * `distribId : str`: the local distribution id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` (for MacOsX)
 * `distribVersion : str`: the version associated with the distribution in `distribId`
 * `targetArch : str`: the destination architecture `x86_64`, `i686`, ...
-* `targetDistribId : str`: the destination target id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` or `mingw`
+* `targetDistribId : str`: the destination target id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin`, `mingw` or `emscripten`
 * `toolchain : str`: name of the toolchain
 * `crossCompilation : bool`: tells if the build is any kind of cross compilation
 * `libdir : str`: the library directory to use for this distribution (typically `lib` or `lib64`)
@@ -213,6 +219,7 @@ Here's some examples for the key:
 * `Darwin` matches builds on MacOs
 * `Windows` matches builds on Windows
 * `Fedora->mingw@x86_64` matches build on a Fedora for a cross build to mingw64
+* `Ubuntu->emscripten@wasm32` matches build on a Ubuntu for a cross build to emscripten
 
 Here's some full examples:
 * `'Ubuntu|Debian': ['libprotobuf-c-dev', DepsAdjuster('>= Ubuntu 22.04|>= Debian 12.00', add=['thrift-compiler', 'libthrift-dev'])]` always require the `libprotobuf-c-dev` when
@@ -269,4 +276,31 @@ Specific build artifacts objects and their signatures:
     a build artifact that relies on `autotools` / `make` to build
 * `MesonBuildArtifact(name: str, deps, srcObj, mesonOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that relies on `meson` to build
 * `CustomCommandBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_src_cmds=[], prepare_cmds=[], build_target='all', install_target='install', builder='make')`: build artifact with the provided `builder` (can be `make`, `makeMsys2`, `nmake` or `ninja`) with specified commands to prepare the source and build directory
+
+
+## Building for emscripten
+With `--targetDistrib=emscripten` _Accendino_ builds WebAssembly with [emscripten](https://emscripten.org), for instance
+`accendino --targetDistrib=emscripten --targets=freerdp3 freerdp.accendino` builds FreeRDP's SDL3 client for the browser.
+
+The `emscripten` toolchain uses the emsdk pointed by the `EMSDK` env variable when it is set (like in the
+`emscripten/emsdk` docker image). Otherwise it installs emsdk in the `tools/emsdk` directory of the project, it
+only needs `git`, `python3`, `xz` and `tar` on the host. The toolchain sets `CC=emcc`, `CXX=em++`, `AR=emar`
+and the environment of `emsdk_env.sh` for all the build commands.
+
+Options in the `emscripten` section of the build options file:
+* `version`: the emsdk version to install when `EMSDK` is not set (`6.0.11` by default);
+* `pthreads`: compile and link everything with `-pthread` (on by default), needed for shared memory and so to use
+  threads in the program.
+
+What changes compared to a native build:
+* there are no shared libraries in WebAssembly: the cmake cross file sets `BUILD_SHARED_LIBS=OFF` by default and meson
+  builds use `-Ddefault_library=static`. Projects with their own option for this (like zlib's `ZLIB_BUILD_SHARED`) must
+  be told explicitly;
+* the cmake cross file wraps emsdk's `Emscripten.cmake` (what `emcmake` does) and adds the deploy prefix to
+  `CMAKE_FIND_ROOT_PATH`, so `find_package()` finds the artifacts we have built. Programs run in `node`
+  (`CMAKE_CROSSCOMPILING_EMULATOR` and meson's `exe_wrapper`). `install(TARGETS)` only installs the `.js` loader of
+  an executable, so after `cmake --install` _Accendino_ installs the matching `.wasm` module next to each installed `.js`;
+* `PKG_CONFIG_LIBDIR` only contains the deploy prefix and the emscripten sysroot, never the host `.pc` files;
+* platform packages can't satisfy a dependency: _Accendino_ files must build it from sources when `targetDistribId` is
+  `emscripten`. For autotools based projects pass `--host=wasm32-unknown-emscripten` in the configure arguments.
 

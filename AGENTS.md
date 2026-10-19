@@ -58,8 +58,9 @@ Everything lives under `src/accendino/`:
   how to populate an artifact's source directory and report whether they actually changed it
   (`self.refreshed`), which feeds the rebuild-cascade logic above.
 - **`toolchain.py`** — `IToolChain` subclasses (`GccToolChain`, `ClangToolChain`, `MingwToolChain`,
-  `VsToolChain`, `DefaultToolChain`) abstract compiler selection/activation and platform package
-  requirements per toolchain. `DefaultToolChain` autodetects by probing which toolchain's required
+  `VsToolChain`, `EmscriptenToolChain`, `DefaultToolChain`) abstract compiler selection/activation and platform package
+  requirements per toolchain. `EmscriptenToolChain` uses `$EMSDK` or installs emsdk in the project's `tools/`
+  directory; cross targets (`mingw`, `emscripten`) get their cmake/meson cross files from `src/accendino/cross/`. `DefaultToolChain` autodetects by probing which toolchain's required
   packages are satisfiable.
 - **`localdeps.py`** — `PackageManagerBase` subclasses per OS package manager (`dpkg`, `rpm`, `pacman`,
   `pkg`, `chocolatey`, `brew`, msys2); `getPkgManager()` picks one from the detected distro.

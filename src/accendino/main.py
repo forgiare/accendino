@@ -34,6 +34,9 @@ def doHelp(args, is_error) -> int:
     print("\t--options=<path>: a path to the build options file")
     print("\t--refreshSources: force updating git sources and rebuild artifacts whose sources changed")
     print("\t--refresh: force rebuild of the requested targets, even if they were already built")
+    print("\t--targetDistrib=<distrib>: cross compile for mingw32, mingw64 or emscripten")
+    print("\t--targetArch=<arch>: the target architecture (i686, x86_64 or wasm32)")
+    print("\t--toolchain=<name>: the toolchain to use (default, gcc, clang, vs, mingw, emscripten)")
     if is_error:
         return 1
 
@@ -113,7 +116,7 @@ def detectPlatform() -> None:
 
 
 BUILD_TYPES = ('release', 'debug',)
-ARCHS = ('i686', 'x86_64')
+ARCHS = ('i686', 'x86_64', 'wasm32')
 
 ARCHS_MAP = {
     'AMD64': 'x86_64', # Windows
@@ -353,6 +356,10 @@ class AccendinoConfig:
 
             if localDistrib in ('Ubuntu', 'Debian',):
                 return str(self.crossFileDir / f'debian-mingw{bits}.{builder}')
+
+        if targetDistrib == 'emscripten':
+            # these use the emsdk set up by the emscripten toolchain, whatever the host
+            return str(self.crossFileDir / f'emscripten.{builder}')
 
         logging.error(f'no cross platform file available for {targetDistrib}/{arch}')
         return None
@@ -618,6 +625,10 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
             config.targetDistrib = 'mingw'
             config.targetArch = 'x86_64'
             config.toolchain = 'mingw'
+        elif value == 'emscripten':
+            config.targetDistrib = 'emscripten'
+            config.targetArch = 'wasm32'
+            config.toolchain = 'emscripten'
         else:
             config.targetDistrib = value
     elif option in ('--toolchain',):
