@@ -12,11 +12,17 @@ from accendino.utils import treatPackageDeps
 class IToolChain:
     ''' Abstract toolchain '''
 
-    def __init__(self, name, config):
+    def __init__(self, name, config, machine=None):
+        '''
+            @param name: name of the toolchain
+            @param config: the accendino configuration
+            @param machine: the machine the toolchain builds for, defaults to the target machine
+        '''
         self.name = name
         self.description = name
         self.artifactRequires = {}
         self.config = config
+        self.machine = machine if machine else config.targetMachine
 
     def packagesCheck(self, packageManager: PackageManager, artifacts: T.List[str], doInstall: bool) -> bool:
         '''
@@ -26,13 +32,7 @@ class IToolChain:
             @param doInstall: tell if we should install missing packages
             @return if the operation was successful
         '''
-        config = self.config
-        shortName = f"{config.distribId}"
-        longName = f"{config.distribId} {config.distribVersion}"
-        if config.targetDistrib != config.distribId:
-            # cross compiling adjusting the searched names
-            shortName += f'->{config.targetDistrib}@{config.targetArch}'
-            longName += f'->{config.targetDistrib}@{config.targetArch}'
+        (shortName, longName) = self.machine.packageKeys()
 
         toCheck = []
         for artifact in artifacts:
@@ -127,8 +127,8 @@ KNOWN_VS_FLAVORS = ('msvc', 'clang')
 class VsToolChain(IToolChain):
     ''' Toolchain using visual studio '''
 
-    def __init__(self, config, flavor='msvc'):
-        IToolChain.__init__(self, 'MsvcToolChain', config)
+    def __init__(self, config, flavor='msvc', machine=None):
+        IToolChain.__init__(self, 'MsvcToolChain', config, machine)
         self.artifactRequires = {
             'c': {
                 'Windows': ['choco/vswhere|path/vswhere.exe'],
@@ -147,14 +147,13 @@ class VsToolChain(IToolChain):
 
 
     def activate(self) -> bool:
-        config = self.config
         if self.flavor == 'msvc':
             archsEquiv = {
                 "x86_64": "x86.x64",
                 "arm64": "ARM64"
             }
 
-            component = f'Microsoft.VisualStudio.Component.VC.Tools.{archsEquiv.get(config.targetArch, "x86.x64")}'
+            component = f'Microsoft.VisualStudio.Component.VC.Tools.{archsEquiv.get(self.machine.arch, "x86.x64")}'
         elif self.flavor == 'clang':
             component = 'Microsoft.VisualStudio.Component.VC.Llvm.Clang'
         else:
@@ -194,7 +193,7 @@ class VsToolChain(IToolChain):
 
         # run once the VsDevCmd.bat to catch the extra environment
         with tempfile.NamedTemporaryFile(suffix='.bat', mode='wt', encoding='utf-8', delete_on_close=False) as t:
-            t.write(f'@set\n@echo ========\n@call "{str(self.setvarsPath)}" -arch={VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)}\n@set')
+            t.write(f'@set\n@echo ========\n@call "{str(self.setvarsPath)}" -arch={VSDEVCMD_ARCHS.get(self.machine.arch, self.machine.arch)}\n@set')
             t.flush()
             t.close()
 
@@ -216,8 +215,8 @@ class VsToolChain(IToolChain):
 class GccToolChain(IToolChain):
     ''' Toolchain with GCC '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'Gcc', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'Gcc', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Debian|Ubuntu|Fedora|Redhat': ['gcc'],
@@ -247,8 +246,8 @@ class GccToolChain(IToolChain):
 class ClangToolChain(IToolChain):
     ''' Toolchain with clang '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'Clang', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'Clang', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Debian|Ubuntu|Fedora|Redhat': ['clang'],
@@ -274,8 +273,8 @@ class ClangToolChain(IToolChain):
 class MingwToolChain(IToolChain):
     ''' Toolchain with mingw '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'mingw', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'mingw', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
@@ -309,7 +308,7 @@ class MingwToolChain(IToolChain):
         ret = {}
         for artifact in artifacts:
             if artifact in VAR_ENV_PER_ARTIFACT:
-                arch = self.config.targetArch
+                arch = self.machine.arch
                 if arch in VAR_ENV_PER_ARTIFACT[artifact]:
                     ret.update(VAR_ENV_PER_ARTIFACT[artifact][arch])
 
@@ -328,8 +327,8 @@ class EmscriptenToolChain(IToolChain):
             * pthreads: compile everything with -pthread (on by default, needed for shared memory)
     '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'emscripten', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'emscripten', config, machine)
 
         # emsdk is downloaded by emsdk itself, it only needs these on the host
         emsdkDeps = {
@@ -433,20 +432,20 @@ class EmscriptenToolChain(IToolChain):
 class DefaultToolChain(IToolChain):
     ''' Toolchain that does some smart default depending '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'default', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'default', config, machine)
         self.testObjs = []
         self.selectedObj = None
 
-        if config.distribId == 'Windows':
-            self.testObjs.append(VsToolChain(config, 'msvc'))
-        elif config.distribId == 'Darwin':
+        if self.machine.distribId == 'Windows':
+            self.testObjs.append(VsToolChain(config, 'msvc', self.machine))
+        elif self.machine.distribId == 'Darwin':
             # macOS only ships clang: `gcc`/`cc` are just aliases for it, there is no
             # real gcc, so don't let GccToolChain win the autodetection there
-            self.testObjs.append(ClangToolChain(config))
+            self.testObjs.append(ClangToolChain(config, self.machine))
         else:
-            self.testObjs.append(GccToolChain(config))
-            self.testObjs.append(ClangToolChain(config))
+            self.testObjs.append(GccToolChain(config, self.machine))
+            self.testObjs.append(ClangToolChain(config, self.machine))
 
     def packagesCheck(self, packageManager: PackageManager, artifacts: T.List[str], doInstall: bool) -> bool:
         logging.debug(' * autodetecting with default toolchain manager')
@@ -480,14 +479,15 @@ TOOLCHAINS = {
     'none': IToolChain,
 }
 
-def getToolchain(name: str, config):
+def getToolchain(name: str, config, machine=None):
+    ''' returns the toolchain object for the given name, building for machine (the target machine by default) '''
     ret = None
     if name in TOOLCHAINS:
         ctor = TOOLCHAINS[name]
-        ret = ctor(config)
+        ret = ctor(config, machine=machine)
 
     elif name.startswith('vs/'):
         flavor = name[3:]
-        ret = VsToolChain(config, flavor)
+        ret = VsToolChain(config, flavor, machine)
 
     return ret

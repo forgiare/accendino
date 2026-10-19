@@ -57,6 +57,10 @@ Everything lives under `src/accendino/`:
 - **`sources.py`** — `Source` subclasses (`GitSource`, `LocalSource`, `RemoteArchiveSource`) that know
   how to populate an artifact's source directory and report whether they actually changed it
   (`self.refreshed`), which feeds the rebuild-cascade logic above.
+- **`machine.py`** — `Machine`: what artifacts are built for (local distrib, target distrib/arch,
+  `crossCompilation`, toolchain object, prefix, libdir, cross file chooser, package lookup keys).
+  `AccendinoConfig.targetMachine` is created by `setPlatform()`; each artifact gets it as `self.machine` in
+  `finalizeConfig()`, and builditems/toolchains read the target settings from it rather than from the config.
 - **`toolchain.py`** — `IToolChain` subclasses (`GccToolChain`, `ClangToolChain`, `MingwToolChain`,
   `VsToolChain`, `EmscriptenToolChain`, `DefaultToolChain`) abstract compiler selection/activation and platform package
   requirements per toolchain. `EmscriptenToolChain` uses `$EMSDK` or installs emsdk in the project's `tools/`

@@ -17,6 +17,7 @@ from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Sourc
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath, RunInShell, mergePkgDeps, is_exact_instance
 from accendino.toolchain import getToolchain
+from accendino.machine import Machine
 
 
 
@@ -150,9 +151,8 @@ class AccendinoConfig:
         self.refreshSources = False
         self.refresh = False
         self.maxJobs = 5
-        self.crossCompilation = False
         self.toolchain = 'default'
-        self.toolchainObj = None
+        self.targetMachine: Machine = None
 
         localMachine = platform.machine()
         self.localArch = ARCHS_MAP.get(localMachine, localMachine)
@@ -364,16 +364,26 @@ class AccendinoConfig:
         logging.error(f'no cross platform file available for {targetDistrib}/{arch}')
         return None
 
+    @property
+    def crossCompilation(self) -> bool:
+        return self.targetMachine.crossCompilation if self.targetMachine else False
+
+    @property
+    def toolchainObj(self):
+        return self.targetMachine.toolchainObj if self.targetMachine else None
+
+    @toolchainObj.setter
+    def toolchainObj(self, value) -> None:
+        self.targetMachine.toolchainObj = value
+
     def setPlatform(self, distribId: str, distribVersion: str) -> None:
         self.distribId = distribId
         self.distribVersion = distribVersion
         if not self.targetDistrib:
             self.targetDistrib = distribId
 
-        self.crossCompilation = (self.distribId != self.targetDistrib) or (self.localArch != self.targetArch)
-
-        if self.distribId in ['Redhat', 'Fedora']:
-            self.libdir = 'lib64'
+        self.targetMachine = Machine(distribId, distribVersion, self.targetDistrib, self.targetArch, self.localArch)
+        self.libdir = self.targetMachine.libdir
 
         extraKeys = {
             'distribId': distribId,
@@ -392,12 +402,7 @@ class AccendinoConfig:
     def treatPlatformPackages(self, pkgManager, packagesToCheck, buildItems) -> None:
         ''' '''
         # let's compute platform package requirements
-        shortName = f"{self.distribId}"
-        longName = f"{self.distribId} {self.distribVersion}"
-        if self.targetDistrib != self.distribId:
-            # cross compiling adjusting the searched names
-            shortName += f'->{self.targetDistrib}@{self.targetArch}'
-            longName += f'->{self.targetDistrib}@{self.targetArch}'
+        (shortName, longName) = self.targetMachine.packageKeys()
 
         toolchainArtifacts = []
         for item in buildItems:
@@ -521,6 +526,7 @@ class AccendinoConfig:
 
                 newPkg[k] = newList
             buildItem.pkgs = newPkg
+            buildItem.machine = self.targetMachine
 
             self.buildDefs.append(buildItem)
 
@@ -541,6 +547,8 @@ class AccendinoConfig:
         self.toolsDir = self.projectDir / 'tools'
 
         self.getCrossPlatformFile = self.context.get('CROSS_PLATFORM_FILE_CHOOSER', self.default_getCrossPlatformFile)
+        self.targetMachine.prefix = self.prefix
+        self.targetMachine.crossPlatformFileChooser = self.getCrossPlatformFile
         return True
 
 
@@ -692,7 +700,7 @@ def run(args: T.List[str]) -> int:
     config.setPlatform(distribId, distribVersion)
 
     # grab a toolchain
-    config.toolchainObj = getToolchain(config.toolchain, config)
+    config.toolchainObj = getToolchain(config.toolchain, config, config.targetMachine)
     if not config.toolchainObj:
         logging.error(f"unable to find toolchain {config.toolchain}")
         return 2

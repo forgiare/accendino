@@ -94,6 +94,8 @@ class DepsBuildArtifact:
         self.pkgs = treatPackageDeps(pkgs)
         self.prepareStateFile = None
         self.builtFile = None
+        # the Machine this artifact is built for, set when the configuration is finalized
+        self.machine = None
         if isinstance(toolchainArtifacts, str):
             self.toolchainArtifacts = toolchainArtifacts.split(',')
         else:
@@ -234,7 +236,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         # start by updating the base environment with what's comes from the toolchain
         if not self.skipToolchainEnv:
-            toolchainEnv = config.toolchainObj.extraEnv(self.toolchainArtifacts)
+            toolchainEnv = self.machine.toolchainObj.extraEnv(self.toolchainArtifacts)
             if toolchainEnv:
                 self._updateEnvMap(config, r, toolchainEnv)
                 xkeys += toolchainEnv.keys()
@@ -243,13 +245,13 @@ class BuildArtifact(DepsBuildArtifact):
         xkeys.append('PKG_CONFIG_LIBDIR')
         pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig:{prefix_posix}/share/pkgconfig'
 
-        archLibDir = getArchLibDir(config.targetDistrib, config.targetArch)
+        archLibDir = getArchLibDir(self.machine.targetDistrib, self.machine.arch)
         if archLibDir:
             pkg_config_path += ':{prefix_posix}/{libdir}/' + archLibDir + '/pkgconfig'
             pkg_config_path += f':/usr/lib/{archLibDir}/pkgconfig'
 
         # host .pc files must never satisfy a WebAssembly build
-        if config.targetDistrib != 'emscripten':
+        if self.machine.targetDistrib != 'emscripten':
             pkg_config_path += ':/usr/share/pkgconfig'
             if orig_pkg_config_path:
                 pkg_config_path += ":" + orig_pkg_config_path
@@ -259,8 +261,8 @@ class BuildArtifact(DepsBuildArtifact):
         }
 
         # adds the target bin directory to the PATH
-        if not config.crossCompilation:
-            xx['PATH'] = pathlib.PurePath(config.prefix, 'bin')
+        if not self.machine.crossCompilation:
+            xx['PATH'] = pathlib.PurePath(self.machine.prefix, 'bin')
             xkeys.append('PATH')
 
         self._updateEnvMap(config, r, xx)
@@ -272,20 +274,20 @@ class BuildArtifact(DepsBuildArtifact):
         xkeys = list( set(xkeys) )
 
         if createEnvFile:
-            fileDumperFn = self._createEnvFileWin32 if config.distribId in ('Windows', ) else self._createEnvFileUnix
+            fileDumperFn = self._createEnvFileWin32 if self.machine.distribId in ('Windows', ) else self._createEnvFileUnix
             fileDumperFn(r, xkeys)
 
         return (r, xkeys)
 
-    def _expandConfigInString(self, item: str, config) -> str:
+    def _expandConfigInString(self, item: str, _config) -> str:
         if not isinstance(item, str):
             item = str(item)
 
         values = {
-            'libdir': config.libdir,
-            'prefix': config.prefix,
-            'prefix_posix': config.prefix.as_posix(),
-            'prefix_msys2': as_msys2_path(config.prefix),
+            'libdir': self.machine.libdir,
+            'prefix': self.machine.prefix,
+            'prefix_posix': self.machine.prefix.as_posix(),
+            'prefix_msys2': as_msys2_path(self.machine.prefix),
             'srcdir': self.sourceDir,
             'srcdir_posix': self.sourceDir.as_posix(),
             'builddir': self.buildDir,
@@ -316,7 +318,7 @@ class BuildArtifact(DepsBuildArtifact):
         if self.name in config.debugArtifacts or config.debugArtifacts.intersection(self.provides):
             self.buildType = 'debug'
 
-        dirName = f"{config.targetDistrib}-{config.toolchainObj.description}-{config.targetArch}-{self.buildType}"
+        dirName = f"{self.machine.targetDistrib}-{self.machine.toolchainObj.description}-{self.machine.arch}-{self.buildType}"
         self.buildDir = config.buildsDir / dirName / self.name
 
         os.makedirs(self.buildDir, exist_ok=True)
@@ -396,9 +398,9 @@ class BuildArtifact(DepsBuildArtifact):
 
             self._pushPowerShellEnv(f, env, xkeys)
 
-            toolchainContent = config.toolchainObj.prepareItems()
+            toolchainContent = self.machine.toolchainObj.prepareItems()
             if toolchainContent:
-                f.write(f'# added by toolchain {config.toolchainObj.description}\n')
+                f.write(f'# added by toolchain {self.machine.toolchainObj.description}\n')
                 f.write(toolchainContent)
                 f.write('\n')
 
@@ -465,11 +467,11 @@ class BuildArtifact(DepsBuildArtifact):
         if os.path.exists(self.builtFile):
             os.remove(self.builtFile)
 
-        scriptBuilder = self._createPrepareFileWin32 if config.distribId in ('Windows',) else self._createPrepareFileUnix
+        scriptBuilder = self._createPrepareFileWin32 if self.machine.distribId in ('Windows',) else self._createPrepareFileUnix
         scriptBuilder(config, env, xkeys)
 
         ret = False
-        if config.distribId in ('Windows', ) and config.buildWithPowershell:
+        if self.machine.distribId in ('Windows', ) and config.buildWithPowershell:
             logging.debug(f'running powershell .\\{WIN_PREPARE_SCRIPT}')
             ret = self.execute(['powershell', '-ExecutionPolicy', 'Unrestricted', '-File', f'.\\{WIN_PREPARE_SCRIPT}'], env, self.buildDir)
         else:
@@ -501,9 +503,9 @@ class BuildArtifact(DepsBuildArtifact):
 
             self._pushPowerShellEnv(f, env, xkeys)
 
-            toolchainItem = config.toolchainObj.prepareItems()
+            toolchainItem = self.machine.toolchainObj.prepareItems()
             if toolchainItem:
-                f.write(f'# toolchain setup for {config.toolchainObj.description}\n{toolchainItem}\n')
+                f.write(f'# toolchain setup for {self.machine.toolchainObj.description}\n{toolchainItem}\n')
 
             lastPath = None
             for cmd, path, cmddoc in self.build_cmds:
@@ -528,7 +530,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         (env, xkeys) = self._computeEnv(config, self.extraEnv)
 
-        if config.distribId in ('Windows',) and config.buildWithPowershell:
+        if self.machine.distribId in ('Windows',) and config.buildWithPowershell:
             if not self._createWin32BuildScript(config, env, xkeys):
                 return False
 
@@ -666,8 +668,8 @@ class CMakeBuildArtifact(BuildArtifact):
         cmakeBuildType = config.cmakeBuildType(self.buildType)
         cmake_cmd = ['cmake']
 
-        if config.crossCompilation:
-            fname = config.getCrossPlatformFile("cmake", config.distribId, config.targetDistrib, config.targetArch)
+        if self.machine.crossCompilation:
+            fname = self.machine.getCrossPlatformFile("cmake")
             cmake_cmd.append(f'-DCMAKE_TOOLCHAIN_FILE={fname}')
 
         # CMAKE_BUILD_TYPE is used by single-config generators (Makefiles, Ninja), CMAKE_CONFIGURATION_TYPES
@@ -698,7 +700,7 @@ class CMakeBuildArtifact(BuildArtifact):
             (['cmake', '--install', '{builddir}', '--config', cmakeBuildType], '{builddir}', 'installing'),
         ]
 
-        if config.targetDistrib == 'emscripten':
+        if self.machine.targetDistrib == 'emscripten':
             # install(TARGETS) doesn't install the .wasm module of executables
             script = config.crossFileDir / 'emscripten-install-wasm.cmake'
             self.build_cmds.append((['cmake', '-DBUILD_DIR={builddir}', '-P', str(script)], '{builddir}', 'installing wasm modules'))
@@ -739,7 +741,7 @@ class QMakeBuildArtifact(BuildArtifact):
 
     def prepare(self, config) -> bool:
         cmd = []
-        qtChooser = config.distribId in ('Ubuntu', 'Debian', )
+        qtChooser = self.machine.distribId in ('Ubuntu', 'Debian', )
         if qtChooser:
             cmd = ['qtchooser', '-qt=qt5', '--run-tool=qmake']
         else:
@@ -892,8 +894,8 @@ class MesonBuildArtifact(BuildArtifact):
                f'-Dbuildtype={config.mesonBuildType(self.buildType)}',
         ]
 
-        if config.crossCompilation:
-            cmd += ['--cross-file', config.getCrossPlatformFile('meson', config.distribId, config.targetDistrib, config.targetArch)]
+        if self.machine.crossCompilation:
+            cmd += ['--cross-file', self.machine.getCrossPlatformFile('meson')]
 
         if reconfigure:
             cmd += ["--reconfigure"]
@@ -901,7 +903,7 @@ class MesonBuildArtifact(BuildArtifact):
         # build both static and shared libraries unless the artifact asks for something else, emscripten
         # has no shared libraries
         if not any(opt.startswith(('-Ddefault_library=', '--default-library')) for opt in self.mesonOpts):
-            cmd += ['-Ddefault_library=static' if config.targetDistrib == 'emscripten' else '-Ddefault_library=both']
+            cmd += ['-Ddefault_library=static' if self.machine.targetDistrib == 'emscripten' else '-Ddefault_library=both']
         cmd += self.mesonOpts
         cmd += [self.sourceDir]
 
