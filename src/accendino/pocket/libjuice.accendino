@@ -1,0 +1,42 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building libjuice (UDP Interactive Connectivity Establishment)
+#
+#    options:
+#      * fromSources: force build from sources, it's the default on distributions that don't package libjuice
+#      * withNettle: use nettle for the hash functions instead of the embedded implementations (sources builds only)
+#
+
+libjuice_pkgDeps = {
+    'Arch|Darwin': ['libjuice'],
+}
+
+libjuice_fromSources = getOption('libjuice.fromSources', crossCompilation or distribId not in ('Arch', 'Darwin',))
+
+if libjuice_fromSources:
+    libjuice_withNettle = getOption('libjuice.withNettle', False)
+
+    libjuice_cmakeOpts = ['-DNO_TESTS=ON', f'-DUSE_NETTLE={"ON" if libjuice_withNettle else "OFF"}']
+    libjuice_buildPkgDeps = {}
+    if libjuice_withNettle:
+        libjuice_buildPkgDeps = {
+            UBUNTU_LIKE: ['nettle-dev'],
+            REDHAT_LIKE: ['nettle-devel'],
+            'Arch|FreeBSD|Darwin': ['nettle'],
+        }
+
+    ARTIFACTS += [
+        CMakeBuildArtifact('libjuice', [], stdGitSourceFromOptions('libjuice', 'https://github.com/paullouisageneau/libjuice.git', 'v1.7.4'),
+            cmakeOpts=libjuice_cmakeOpts,
+            pkgs=libjuice_buildPkgDeps,
+            provides=['libjuice-artifact'],
+        )
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('libjuice-artifact', [], pkgs=libjuice_pkgDeps)
+    ]
