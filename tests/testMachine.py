@@ -1,5 +1,6 @@
 import unittest
 from accendino.machine import Machine
+from accendino.toolchain import CROSS_FILE_DIR, EmscriptenToolChain, GccToolChain, MingwToolChain
 
 class Test(unittest.TestCase):
 
@@ -21,5 +22,24 @@ class Test(unittest.TestCase):
 
     def testCrossPlatformFile(self):
         m = Machine('Ubuntu', '24.04', 'emscripten', 'wasm32', 'x86_64')
-        m.crossPlatformFileChooser = lambda builder, local, target, arch: f'{builder}:{local}:{target}:{arch}'
-        self.assertEqual(m.getCrossPlatformFile('meson'), 'meson:Ubuntu:emscripten:wasm32')
+        m.toolchainObj = EmscriptenToolChain(None, machine=m)
+        self.assertEqual(m.getCrossPlatformFile('meson'), str(CROSS_FILE_DIR / 'emscripten.meson'))
+
+        # the chooser of the accendino files wins, the toolchain's file is used when it returns None
+        m.crossPlatformFileChooser = lambda builder, machine: f'/x/{builder}-{machine.arch}' if builder == 'cmake' else None
+        self.assertEqual(m.getCrossPlatformFile('cmake'), '/x/cmake-wasm32')
+        self.assertEqual(m.getCrossPlatformFile('meson'), str(CROSS_FILE_DIR / 'emscripten.meson'))
+
+    def testMingwCrossFile(self):
+        m = Machine('Ubuntu', '24.04', 'mingw', 'x86_64', 'x86_64')
+        m.toolchainObj = MingwToolChain(None, machine=m)
+        self.assertEqual(m.getCrossPlatformFile('cmake'), str(CROSS_FILE_DIR / 'debian-mingw64.cmake'))
+
+        m = Machine('Fedora', '40', 'mingw', 'i686', 'x86_64')
+        m.toolchainObj = MingwToolChain(None, machine=m)
+        self.assertEqual(m.getCrossPlatformFile('meson'), '/usr/share/mingw/toolchain-mingw32.meson')
+
+    def testNoCrossFile(self):
+        m = Machine('Ubuntu', '24.04', 'Ubuntu', 'aarch64', 'x86_64')
+        m.toolchainObj = GccToolChain(None, machine=m)
+        self.assertIsNone(m.getCrossPlatformFile('cmake'))

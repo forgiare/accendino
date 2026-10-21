@@ -61,10 +61,18 @@ Everything lives under `src/accendino/`:
   `crossCompilation`, toolchain object, prefix, libdir, cross file chooser, package lookup keys).
   `AccendinoConfig.targetMachine` is created by `setPlatform()`; each artifact gets it as `self.machine` in
   `finalizeConfig()`, and builditems/toolchains read the target settings from it rather than from the config.
+  When cross compiling and some artifact has `toolDeps`, `AccendinoConfig.setupBuildMachine()` creates
+  `config.buildMachine` and evaluates the accendino files a second time in a fresh context (an `Evaluation`, with
+  `buildingTools=True`); the artifacts of that evaluation are renamed `native:<name>` (directories `native-<name>`),
+  installed in `--buildToolsPrefix`, and the target artifacts' `toolDeps` become `native:` dependencies. Without cross
+  compilation `toolDeps` are merged into `deps`. `buildMachineOnly` artifacts are dropped from the target graph when cross
+  compiling, references to them become `toolDeps`. Cross meson builds get a generated `--native-file` pointing pkg-config
+  at the build prefix and the system for `native: true` lookups.
 - **`toolchain.py`** — `IToolChain` subclasses (`GccToolChain`, `ClangToolChain`, `MingwToolChain`,
   `VsToolChain`, `EmscriptenToolChain`, `DefaultToolChain`) abstract compiler selection/activation and platform package
   requirements per toolchain. `EmscriptenToolChain` uses `$EMSDK` or installs emsdk in the project's `tools/`
-  directory; cross targets (`mingw`, `emscripten`) get their cmake/meson cross files from `src/accendino/cross/`. `DefaultToolChain` autodetects by probing which toolchain's required
+  directory; `crossFile()` gives the cmake/meson cross file of a toolchain (`mingw` and `emscripten` ones, mostly from
+  `src/accendino/cross/`), `CROSS_PLATFORM_FILE_CHOOSER` can override it (`Machine.getCrossPlatformFile()`). `DefaultToolChain` autodetects by probing which toolchain's required
   packages are satisfiable.
 - **`localdeps.py`** — `PackageManagerBase` subclasses per OS package manager (`dpkg`, `rpm`, `pacman`,
   `pkg`, `chocolatey`, `brew`, msys2); `getPkgManager()` picks one from the detected distro.

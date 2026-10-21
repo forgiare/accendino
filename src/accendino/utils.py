@@ -271,6 +271,28 @@ def getArchLibDir(distribId: str, archId: str) -> str:
     return archKey + osKey
 
 
+def pkgConfigDirs(prefix: T.Optional[str], libdir: str, targetDistrib: str, arch: str, extraPath: T.Optional[str]) -> T.List[str]:
+    ''' returns the pkg-config search directories for a machine, with the ones of prefix if given, and
+        the paths of extraPath (a PKG_CONFIG_PATH like string) at the end
+    '''
+    ret = []
+    if prefix:
+        ret += [f'{prefix}/{libdir}/pkgconfig', f'{prefix}/share/pkgconfig']
+
+    archLibDir = getArchLibDir(targetDistrib, arch)
+    if archLibDir:
+        if prefix:
+            ret.append(f'{prefix}/{libdir}/{archLibDir}/pkgconfig')
+        ret.append(f'/usr/lib/{archLibDir}/pkgconfig')
+
+    # host .pc files must never satisfy a WebAssembly build
+    if targetDistrib != 'emscripten':
+        ret.append('/usr/share/pkgconfig')
+        if extraPath:
+            ret += [p for p in extraPath.split(':') if p]
+
+    return ret
+
 def envForDepotTools(env: T.Dict[str, str] = None):
     ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between
         python versions

@@ -38,7 +38,9 @@ if wlroots_fromSources:
             stdGitSourceFromOptions('wlroots', 'https://gitlab.freedesktop.org/wlroots/wlroots.git', 'master'),
             mesonOpts=['-Dexamples=false', '-Dtests=false'],
             pkgs=wlroots_pkgDeps,
-            provides=['wlroots-artifact']
+            provides=['wlroots-artifact'],
+            # protocol code is generated with wayland-scanner
+            toolDeps=['wayland-artifact'],
         ),
     ]
 

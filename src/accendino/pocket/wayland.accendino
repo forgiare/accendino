@@ -5,23 +5,53 @@
 #
 #    Detecting or building wayland
 #
+#    wayland-scanner generates code during the build of wayland and of its users, when cross compiling it's taken
+#    from the build machine: users put wayland-artifact in their toolDeps and look for it with
+#    dependency('wayland-scanner', native: true). When building the tools of the build machine only wayland-scanner
+#    is built. When building wayland from sources for the target, wayland requires a build machine wayland-scanner of
+#    the exact same version, it's built from sources too (fromSources and wayland_forceBuild are the same for both).
+#
 
 wayland_fromSources = stdBuildFromSourceTest('wayland', locals(), False)
 
 if wayland_fromSources:
-    ARTIFACTS += [
-        MesonBuildArtifact('wayland', [],
-            stdGitSourceFromOptions('wayland', 'https://gitlab.freedesktop.org/wayland/wayland.git', 'main'),
-            mesonOpts=['-Ddocumentation=false'],
-            pkgs={
-                UBUNTU_LIKE: ['libffi-dev', 'libxml2-dev']
-            },
-            provides=['wayland-artifact']
-        )
-    ]
+    wayland_src = stdGitSourceFromOptions('wayland', 'https://gitlab.freedesktop.org/wayland/wayland.git', 'main')
+
+    if buildingTools:
+        ARTIFACTS += [
+            MesonBuildArtifact('wayland', [], wayland_src,
+                mesonOpts=['-Dlibraries=false', '-Dscanner=true', '-Dtests=false', '-Ddocumentation=false',
+                           '-Ddtd_validation=false'],
+                pkgs={
+                    UBUNTU_LIKE: ['libexpat1-dev'],
+                    REDHAT_LIKE: ['expat-devel'],
+                },
+                provides=['wayland-artifact']
+            )
+        ]
+    else:
+        # when cross compiling the scanner of the target is useless, wayland uses the one of the build machine
+        wayland_mesonOpts = ['-Ddocumentation=false']
+        wayland_pkgs = {
+            UBUNTU_LIKE: ['libffi-dev', 'libxml2-dev'],
+        }
+        if crossCompilation:
+            wayland_mesonOpts.append('-Dscanner=false')
+        else:
+            wayland_pkgs[UBUNTU_LIKE].append('libexpat1-dev')
+
+        ARTIFACTS += [
+            MesonBuildArtifact('wayland', [], wayland_src,
+                mesonOpts=wayland_mesonOpts,
+                pkgs=wayland_pkgs,
+                provides=['wayland-artifact'],
+                toolDeps=['wayland-artifact'],
+            )
+        ]
 else:
     wayland_pkgDeps = {
-        UBUNTU_LIKE: ['libwayland-dev']
+        UBUNTU_LIKE: ['libwayland-dev'],
+        REDHAT_LIKE: ['wayland-devel'],
     }
 
     ARTIFACTS += [

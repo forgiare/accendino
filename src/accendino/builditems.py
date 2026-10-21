@@ -7,7 +7,7 @@ import typing as T
 from zenlog import log as logging
 from accendino.sources import Source
 from accendino.utils import mergePkgDeps, treatPackageDeps, doCrossDeps, RunInShell, as_msys2_path, \
-    getArchLibDir
+    pkgConfigDirs
 
 
 # environment variables that change from one shell session to another (typically a new SSH
@@ -80,16 +80,21 @@ BUILT_FILE = 'accendino.built'
 class DepsBuildArtifact:
     ''' basic build artifact only for dependencies and platform packages '''
 
-    def __init__(self, name, deps=[], provides=[], pkgs={}, toolchainArtifacts='c') -> None:
+    def __init__(self, name, deps=[], provides=[], pkgs={}, toolchainArtifacts='c', toolDeps=[], buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
         '''
         self.name = name
         self.deps = deps
+        self.toolDeps = list(toolDeps)
+        self.buildMachineOnly = buildMachineOnly
         self.provides = provides
         self.pkgs = treatPackageDeps(pkgs)
         self.prepareStateFile = None
@@ -128,7 +133,7 @@ class BuildArtifact(DepsBuildArtifact):
     ''' general build artifact '''
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[],
-                 toolchainArtifacts='c', skipToolchainEnv=False) -> None:
+                 toolchainArtifacts='c', skipToolchainEnv=False, toolDeps=[], buildMachineOnly=False) -> None:
         '''
             'commands list' are list of tuple(command, running_directory, command_description).
                 * command is the list passed to subprocess.execute().
@@ -145,12 +150,15 @@ class BuildArtifact(DepsBuildArtifact):
             @param prepare_cmds: a command list of commands to run to prepare the build tree.
             @param build_cmds: a command list of commands to run to do the build and install
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
             @param skipToolchainEnv: do not grab env variable from the toolchain
         '''
         if srcObj:
             pkgs = mergePkgDeps(pkgs, srcObj.pkgDeps)
 
-        DepsBuildArtifact.__init__(self, name, deps, provides, pkgs, toolchainArtifacts)
+        DepsBuildArtifact.__init__(self, name, deps, provides, pkgs, toolchainArtifacts, toolDeps, buildMachineOnly)
         self.srcObj = srcObj
         self.sourceDir = None
         self.buildDir = None
@@ -158,6 +166,8 @@ class BuildArtifact(DepsBuildArtifact):
         self.extraEnv = extraEnv
         self.logFile = None
         self.prepare_cmds = prepare_cmds[:]
+        # if set, saved in the prepare state instead of prepare_cmds (that may depend on the build directory state)
+        self.prepareDumpCmds = None
         self.build_cmds = build_cmds[:]
         self.parallelJobs = True
         self.needsMsys2 = False
@@ -243,18 +253,8 @@ class BuildArtifact(DepsBuildArtifact):
 
         # add a PKG_CONFIG_LIBDIR
         xkeys.append('PKG_CONFIG_LIBDIR')
-        pkg_config_path = '{prefix_posix}/{libdir}/pkgconfig:{prefix_posix}/share/pkgconfig'
-
-        archLibDir = getArchLibDir(self.machine.targetDistrib, self.machine.arch)
-        if archLibDir:
-            pkg_config_path += ':{prefix_posix}/{libdir}/' + archLibDir + '/pkgconfig'
-            pkg_config_path += f':/usr/lib/{archLibDir}/pkgconfig'
-
-        # host .pc files must never satisfy a WebAssembly build
-        if self.machine.targetDistrib != 'emscripten':
-            pkg_config_path += ':/usr/share/pkgconfig'
-            if orig_pkg_config_path:
-                pkg_config_path += ":" + orig_pkg_config_path
+        pkg_config_path = ':'.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
+                                                 orig_pkg_config_path))
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,
@@ -264,6 +264,23 @@ class BuildArtifact(DepsBuildArtifact):
         if not self.machine.crossCompilation:
             xx['PATH'] = pathlib.PurePath(self.machine.prefix, 'bin')
             xkeys.append('PATH')
+        elif config.buildMachine:
+            # cross compiling with tools built for the build machine: make them found and runnable
+            buildMachine = config.buildMachine
+            xx['PATH'] = pathlib.PurePath(buildMachine.prefix, 'bin')
+            xx['CMAKE_PROGRAM_PATH'] = pathlib.PurePath(buildMachine.prefix, 'bin').as_posix()
+            xkeys += ['PATH', 'CMAKE_PROGRAM_PATH']
+
+            # shared libraries of tools are found with the PATH on Windows
+            libPathVar = None
+            if buildMachine.distribId == 'Darwin':
+                libPathVar = 'DYLD_LIBRARY_PATH'
+            elif buildMachine.distribId != 'Windows':
+                libPathVar = 'LD_LIBRARY_PATH'
+            if libPathVar:
+                libDir = pathlib.PurePath(buildMachine.prefix, buildMachine.libdir).as_posix()
+                r[libPathVar] = os.pathsep.join([libDir] + ([r[libPathVar]] if r.get(libPathVar) else []))
+                xkeys.append(libPathVar)
 
         self._updateEnvMap(config, r, xx)
 
@@ -279,7 +296,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         return (r, xkeys)
 
-    def _expandConfigInString(self, item: str, _config) -> str:
+    def _expandConfigInString(self, item: str, config) -> str:
         if not isinstance(item, str):
             item = str(item)
 
@@ -288,6 +305,8 @@ class BuildArtifact(DepsBuildArtifact):
             'prefix': self.machine.prefix,
             'prefix_posix': self.machine.prefix.as_posix(),
             'prefix_msys2': as_msys2_path(self.machine.prefix),
+            'build_prefix': config.toolsPrefix,
+            'build_prefix_posix': config.toolsPrefix.as_posix(),
             'srcdir': self.sourceDir,
             'srcdir_posix': self.sourceDir.as_posix(),
             'builddir': self.buildDir,
@@ -312,14 +331,16 @@ class BuildArtifact(DepsBuildArtifact):
         return ret
 
     def init(self, config) -> bool:
-        self.sourceDir = config.sourcesDir / self.name
+        # artifacts for the build machine are named native:<name>, their directories native-<name>
+        dirBaseName = self.name.replace(':', '-')
+        self.sourceDir = config.sourcesDir / dirBaseName
 
         self.buildType = config.buildType
         if self.name in config.debugArtifacts or config.debugArtifacts.intersection(self.provides):
             self.buildType = 'debug'
 
         dirName = f"{self.machine.targetDistrib}-{self.machine.toolchainObj.description}-{self.machine.arch}-{self.buildType}"
-        self.buildDir = config.buildsDir / dirName / self.name
+        self.buildDir = config.buildsDir / dirName / dirBaseName
 
         os.makedirs(self.buildDir, exist_ok=True)
 
@@ -450,7 +471,7 @@ class BuildArtifact(DepsBuildArtifact):
 
         dump = BuildStepDump()
         dump.env = env.copy()
-        dump.args = self.prepare_cmds
+        dump.args = self.prepare_cmds if self.prepareDumpCmds is None else self.prepareDumpCmds
 
         dumpOnDisk = None
         if os.path.exists(self.prepareStateFile):
@@ -589,7 +610,8 @@ class CustomCommandBuildArtifact(BuildArtifact):
     ''' an artifact that is configured with a special command '''
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides: T.List[str] = [], pkgs={}, prepare_src_cmds=[], prepare_cmds=[],
-                 builder='make', build_target='all', install_target='install', toolchainArtifacts='c', skipToolchainEnv=False) -> None:
+                 builder='make', build_target='all', install_target='install', toolchainArtifacts='c', skipToolchainEnv=False,
+                 toolDeps=[], buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -603,10 +625,14 @@ class CustomCommandBuildArtifact(BuildArtifact):
             @param build_target: target to build
             @param install_target: install to build
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
             @param skipToolchainEnv: do not grab env variable from the toolchain
         '''
         BuildArtifact.__init__(self, name, deps, srcObj, extraEnv=extraEnv, provides=provides, pkgs=pkgs,
-                               toolchainArtifacts=toolchainArtifacts, skipToolchainEnv=skipToolchainEnv)
+                               toolchainArtifacts=toolchainArtifacts, skipToolchainEnv=skipToolchainEnv, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
 
         self.builder = builder
         self.build_target = build_target
@@ -639,7 +665,7 @@ class CMakeBuildArtifact(BuildArtifact):
     ''' cmake based build item '''
 
     def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={},
-                 toolchainArtifacts='c', cmakeProjectDir='{srcdir}') -> None:
+                 toolchainArtifacts='c', cmakeProjectDir='{srcdir}', toolDeps=[], buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -650,6 +676,9 @@ class CMakeBuildArtifact(BuildArtifact):
             @param cmakeOpts:
             @param parallelJobs:
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
             @param cmakeProjectDir: directory containing the CMakeLists.txt, when it's not at the root of the sources
                     (a project shipped as an accendino asset to build or install a prebuilt distribution for instance)
         '''
@@ -659,7 +688,8 @@ class CMakeBuildArtifact(BuildArtifact):
         doCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], ['cmake', 'ninja-build', 'make'], extra)
         pkgs = mergePkgDeps(pkgs, extra)
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
         self.cmakeProjectDir = cmakeProjectDir
@@ -711,7 +741,8 @@ class CMakeBuildArtifact(BuildArtifact):
 class QMakeBuildArtifact(BuildArtifact):
     ''' qmake + make based build item '''
 
-    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, toolchainArtifacts='c++') -> None:
+    def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, toolchainArtifacts='c++', toolDeps=[],
+                 buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -720,6 +751,9 @@ class QMakeBuildArtifact(BuildArtifact):
             @param provides: list of provided build artifacts
             @param pkgs: required platform packages
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
         '''
         pkgs = mergePkgDeps(pkgs, {
             'Ubuntu|Debian': ['qt5-qmake'],
@@ -727,7 +761,8 @@ class QMakeBuildArtifact(BuildArtifact):
             'FreeBSD': ['qt5-qmake'],
         })
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
 
         # needed to avoid some g++ link errors on Fedora
         self.extraEnv = extraEnv.copy()
@@ -766,7 +801,8 @@ class AutogenBuildArtifact(BuildArtifact):
     ''' autotools/autogen.sh + make based build item '''
 
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, autogenArgs=[], noconfigure=False,
-                 isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}', toolchainArtifacts='c') -> None:
+                 isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}', toolchainArtifacts='c',
+                 toolDeps=[], buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -781,6 +817,9 @@ class AutogenBuildArtifact(BuildArtifact):
             @param configureArgs:
             @param runInstallDir:
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
         '''
         pkgs = mergePkgDeps(pkgs, {
             'Ubuntu|Debian': ['make', 'build-essential', 'automake', 'autoconf', 'libtool'],
@@ -788,7 +827,8 @@ class AutogenBuildArtifact(BuildArtifact):
             'Arch|Darwin|FreeBSD': ['autoconf', 'automake', 'libtool'],
         })
 
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
 
         self.isAutogen = isAutogen
         self.autogenArgs = autogenArgs
@@ -826,7 +866,7 @@ class MesonBuildArtifact(BuildArtifact):
     ''' meson + ninja based build item '''
 
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True,
-                 toolchainArtifacts='c', mesonVersion: str = 'system') -> None:
+                 toolchainArtifacts='c', mesonVersion: str = 'system', toolDeps=[], buildMachineOnly=False) -> None:
         '''
             @param name: name of the build artifact
             @param deps: list of dependencies to other build artifacts
@@ -837,6 +877,9 @@ class MesonBuildArtifact(BuildArtifact):
             @param mesonOpts:
             @param parallelJobs:
             @param toolchainArtifacts: artifacts that we need from the toolchain
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
             @param mesonVersion: the meson version to use
         '''
         extra = {
@@ -855,7 +898,8 @@ class MesonBuildArtifact(BuildArtifact):
         doCrossDeps(['Ubuntu', 'Debian', 'Redhat', 'Fedora'], crossDeps, extra)
 
         pkgs = mergePkgDeps(pkgs, extra)
-        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
         self.mesonOpts = mesonOpts
         self.parallelJobs = parallelJobs
         self.mesonVersion = mesonVersion
@@ -886,19 +930,47 @@ class MesonBuildArtifact(BuildArtifact):
         ]
         return self.runCommands(cmds, env, config)
 
-    def prepare(self, config) -> bool:
-        reconfigure = os.path.exists(self.buildDir / 'meson-info')
+    def _writeNativeFile(self, config) -> str:
+        ''' writes the meson native file used when cross compiling, so that dependency(..., native: true) looks in the
+            build machine prefix and the system, not in the target directories of PKG_CONFIG_LIBDIR. Returns its path
+        '''
+        buildMachine = config.buildMachine
+        if buildMachine:
+            prefix = pathlib.PurePath(buildMachine.prefix).as_posix()
+            dirs = pkgConfigDirs(prefix, buildMachine.libdir, buildMachine.targetDistrib, buildMachine.arch,
+                                 os.environ.get('PKG_CONFIG_PATH'))
+        else:
+            prefix = None
+            dirs = pkgConfigDirs(None, 'lib', config.distribId, config.localArch, os.environ.get('PKG_CONFIG_PATH'))
 
+        def mesonList(items: T.List[str]) -> str:
+            return '[' + ', '.join(f"'{i}'" for i in items) + ']'
+
+        content = '# generated by accendino, settings of the build machine\n\n'
+        content += "[binaries]\npkg-config = 'pkg-config'\n\n"
+        content += f'[properties]\npkg_config_libdir = {mesonList(dirs)}\n'
+        if prefix:
+            content += f'\n[built-in options]\ncmake_prefix_path = {mesonList([prefix])}\n'
+
+        # only rewrite when it changes, meson regenerates the build when its native file is touched
+        path = self.buildDir / 'accendino-native.ini'
+        if not os.path.exists(path) or pathlib.Path(path).read_text(encoding='utf8') != content:
+            with open(path, 'wt', encoding='utf8') as f:
+                f.write(content)
+        return str(path)
+
+    def prepare(self, config) -> bool:
         cmd = [self.mesonPath, 'setup',
                '-Dprefix={prefix}',
                f'-Dbuildtype={config.mesonBuildType(self.buildType)}',
         ]
 
         if self.machine.crossCompilation:
-            cmd += ['--cross-file', self.machine.getCrossPlatformFile('meson')]
+            cmd += ['--cross-file', self.machine.getCrossPlatformFile('meson'),
+                    '--native-file', self._writeNativeFile(config)]
 
-        if reconfigure:
-            cmd += ["--reconfigure"]
+        # always given (meson accepts it on a new build directory) so that the prepare state is the same for all runs
+        cmd += ["--reconfigure"]
 
         # build both static and shared libraries unless the artifact asks for something else, emscripten
         # has no shared libraries
@@ -910,6 +982,11 @@ class MesonBuildArtifact(BuildArtifact):
         self.prepare_cmds = [
             (cmd, '{builddir}', 'running meson configure')
         ]
+        self.prepareDumpCmds = self.prepare_cmds[:]
+
+        # meson keeps the found dependencies when reconfiguring, look them up again (a dependency may have been rebuilt)
+        if os.path.exists(self.buildDir / 'meson-info'):
+            self.prepare_cmds.insert(0, ([self.mesonPath, 'configure', '--clearcache'], '{builddir}', 'clearing meson cache'))
 
         concurrentArgs = ['-j', '1']
         if self.parallelJobs:

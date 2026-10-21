@@ -16,7 +16,7 @@ from accendino.localdeps import getPkgManager
 from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Source
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath, RunInShell, mergePkgDeps, is_exact_instance
-from accendino.toolchain import getToolchain
+from accendino.toolchain import getToolchain, CROSS_FILE_DIR
 from accendino.machine import Machine
 
 
@@ -38,6 +38,8 @@ def doHelp(args, is_error) -> int:
     print("\t--targetDistrib=<distrib>: cross compile for mingw32, mingw64 or emscripten")
     print("\t--targetArch=<arch>: the target architecture (i686, x86_64 or wasm32)")
     print("\t--toolchain=<name>: the toolchain to use (default, gcc, clang, vs, mingw, emscripten)")
+    print("\t--buildToolsPrefix=<prefix>: when cross compiling, where tools for the build machine are installed")
+    print("\t--buildToolchain=<name>: when cross compiling, the toolchain building tools for the build machine")
     if is_error:
         return 1
 
@@ -119,6 +121,30 @@ def detectPlatform() -> None:
 BUILD_TYPES = ('release', 'debug',)
 ARCHS = ('i686', 'x86_64', 'wasm32')
 
+# prefix of the names of the artifacts built for the build machine when cross compiling
+NATIVE_PREFIX = 'native:'
+
+
+class Evaluation:
+    ''' An evaluation of the accendino files: they are run once for the target machine, and when cross compiling
+        and tools are needed, a second time for the build machine. Each evaluation has its own exec() namespace.
+    '''
+
+    def __init__(self, machine: Machine = None, buildingTools: bool = False, toolsFor: Machine = None) -> None:
+        '''
+            @param machine: the machine the artifacts of this evaluation are built for
+            @param buildingTools: if this evaluation builds tools for the build machine
+            @param toolsFor: when building tools, the machine the tools are for
+        '''
+        self.machine = machine
+        self.buildingTools = buildingTools
+        self.toolsFor = toolsFor
+        self.toolchainName = None
+        self.includedFiles = set()
+        self.includesStack = []
+        self.context = None
+
+
 ARCHS_MAP = {
     'AMD64': 'x86_64', # Windows
     'amd64': 'x86_64', # FreeBSD
@@ -159,18 +185,26 @@ class AccendinoConfig:
         self.targetArch = None
         self.targetDistrib = None
         self.pocketDir = pathlib.Path(__file__).parent / 'pocket'
-        self.crossFileDir = pathlib.Path(__file__).parent / 'cross'
-        self.getCrossPlatformFile = None
+        self.crossFileDir = CROSS_FILE_DIR
         self.optionsFile = None
         self.options = None
-        self.includesStack = []
+        self.buildMachine: Machine = None
+        self.buildToolsPrefix = None
+        self.buildToolchain = 'default'
 
         #
         # populate a search path that has:
         #   * first paths provided in ACCENDINO_PATH,
         #   * then in the accendino pocket
         self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + [ self.pocketDir ]
-        self.includedFiles = []
+
+        self.sources = []
+        self.targetEval = Evaluation()
+        self.nativeEval: Evaluation = None
+        self.context = self.newContext(self.targetEval)
+
+    def newContext(self, ev: 'Evaluation') -> T.Dict[str, T.Any]:
+        ''' creates the exec() namespace of an evaluation of the accendino files '''
 
         def includeFn(fname: str, include_once: bool = True) -> bool:
             ''' '''
@@ -178,20 +212,17 @@ class AccendinoConfig:
                 fname = fname + '.accendino'
 
             logging.debug(f"including file '{fname}'")
-            ret = self.readSource(fname, include_once)
-            if ret:
-                self.includedFiles.append(fname)
-            return ret
+            return self.readSource(fname, include_once, ev)
 
         def findAssetFn(item: str, asset: str) -> str:
             ''' returns the absolute path of the <item>/<asset> file searched like included files, None if not found '''
-            fpath = self.findSourceFile(os.path.join(item, asset), False)
+            fpath = self.findSourceFile(os.path.join(item, asset), ev)
             return os.path.abspath(fpath) if fpath else None
 
 
         def pickDeps(name: str) -> T.List[T.Any]:
             ''' '''
-            targets = self.context.get("ARTIFACTS", [])
+            targets = ev.context.get("ARTIFACTS", [])
             for t in targets:
                 if t.name == name:
                     return t.deps[:]
@@ -200,7 +231,7 @@ class AccendinoConfig:
         def pickPkgDeps(name: str, extra = None, override : bool = False) -> T.Dict[str, T.List[str]]:
             ''' '''
             ret = None
-            targets = self.context.get("ARTIFACTS", [])
+            targets = ev.context.get("ARTIFACTS", [])
             for t in targets:
                 if t.name == name:
                     ret = t.pkgs.copy()
@@ -238,18 +269,25 @@ class AccendinoConfig:
                 section = configparser.DEFAULTSECT
                 name = optName
 
-            if section not in self.options.sections():
-                return defaultVal
+            # when building tools for the build machine, a [native:<section>] section has precedence
+            sections = [section]
+            if ev.buildingTools:
+                sections.insert(0, NATIVE_PREFIX + section)
 
-            ret = self.options[section].get(name, defaultVal)
-            if isinstance(ret, str):
+            for section in sections:
+                if section not in self.options.sections() or name not in self.options[section]:
+                    continue
+
+                ret = self.options[section][name]
                 if ret.lower() in ('true', 'on', 'yes',):
                     return True
 
                 if ret.lower() in ('false', 'off', 'no',):
                     return False
 
-            return ret
+                return ret
+
+            return defaultVal
 
         def stdGitSourceFromOptions(key: str, url: str, tag: str = 'master') -> Source:
             return GitSource(getOption(f'{key}.url', url), getOption(f'{key}.tag', tag))
@@ -266,8 +304,7 @@ class AccendinoConfig:
                 logging.fatal(msg)
             sys.exit(1)
 
-        self.sources = []
-        self.context = {
+        ev.context = {
             'ARTIFACTS': [],
             'DEFAULT_TARGETS': None,
             'LocalSource': LocalSource,
@@ -298,14 +335,20 @@ class AccendinoConfig:
             'stdGitSourceFromOptions': stdGitSourceFromOptions,
             'stdBuildFromSourceTest': stdBuildFromSourceTest,
             'abort': abort,
+            'buildingTools': ev.buildingTools,
+            'toolsForDistribId': ev.toolsFor.targetDistrib if ev.toolsFor else None,
+            'toolsForArch': ev.toolsFor.arch if ev.toolsFor else None,
         }
+        return ev.context
 
-    def findSourceFile(self, fname: str, include_once: bool = True) -> str:
+    def findSourceFile(self, fname: str, ev: 'Evaluation' = None) -> str:
+        ''' searches an accendino file (or an asset), returns its path or None if not found '''
+        ev = ev or self.targetEval
         searchPaths = ['.', 'pocket'] + self.pocketSearchPaths
 
         # also search in the directory of the last included file
-        if len(self.includesStack) > 0:
-            searchPaths.append( os.path.dirname(self.includesStack[-1]) )
+        if len(ev.includesStack) > 0:
+            searchPaths.append( os.path.dirname(ev.includesStack[-1]) )
 
         # if the requested file is a path then just try to open it
         if fname.startswith('.') or fname.startswith('/'):
@@ -314,9 +357,6 @@ class AccendinoConfig:
         for p in searchPaths:
             fpath = os.path.join(p, fname)
             if os.path.exists(fpath) and os.path.isfile(fpath):
-                if include_once and fpath in self.includedFiles:
-                    logging.debug(f"file '{fpath}' already included")
-                    return True
                 return fpath
 
         return None
@@ -346,24 +386,6 @@ class AccendinoConfig:
                 return item
         return None
 
-    def default_getCrossPlatformFile(self, builder: str, localDistrib: str, targetDistrib : str, arch: str):
-        ''' '''
-        if targetDistrib == 'mingw':
-            bits = '64' if arch == 'x86_64' else '32'
-
-            if localDistrib in ('Redhat', 'Fedora',):
-                return f'/usr/share/mingw/toolchain-mingw{bits}.{builder}'
-
-            if localDistrib in ('Ubuntu', 'Debian',):
-                return str(self.crossFileDir / f'debian-mingw{bits}.{builder}')
-
-        if targetDistrib == 'emscripten':
-            # these use the emsdk set up by the emscripten toolchain, whatever the host
-            return str(self.crossFileDir / f'emscripten.{builder}')
-
-        logging.error(f'no cross platform file available for {targetDistrib}/{arch}')
-        return None
-
     @property
     def crossCompilation(self) -> bool:
         return self.targetMachine.crossCompilation if self.targetMachine else False
@@ -385,50 +407,89 @@ class AccendinoConfig:
         self.targetMachine = Machine(distribId, distribVersion, self.targetDistrib, self.targetArch, self.localArch)
         self.libdir = self.targetMachine.libdir
 
-        extraKeys = {
-            'distribId': distribId,
-            'distribVersion': distribVersion,
-            'targetArch': self.targetArch,
-            'targetDistribId': self.targetDistrib,
-            'crossCompilation': self.crossCompilation,
+        self.targetEval.machine = self.targetMachine
+        self.targetEval.toolchainName = self.toolchain
+        self.context.update(self._platformKeys(self.targetEval))
+
+    def _platformKeys(self, ev: Evaluation) -> T.Dict[str, T.Any]:
+        ''' returns the context keys describing the machine of an evaluation '''
+        machine = ev.machine
+        return {
+            'distribId': machine.distribId,
+            'distribVersion': machine.distribVersion,
+            'targetArch': machine.arch,
+            'targetDistribId': machine.targetDistrib,
+            'crossCompilation': machine.crossCompilation,
             'buildType': self.buildType,
-            'toolchain': self.toolchain,
-            'libdir': self.libdir,
+            'toolchain': ev.toolchainName,
+            'libdir': machine.libdir,
         }
 
-        self.context.update(extraKeys)
+    @property
+    def toolsPrefix(self) -> pathlib.PurePath:
+        ''' where the tools for the build machine are installed: the build prefix when cross compiling, the
+            prefix otherwise '''
+        return self.buildToolsPrefix if self.crossCompilation else self.prefix
 
+
+    @staticmethod
+    def checkCrossFiles(buildPlan) -> bool:
+        ''' checks that the cmake and meson artifacts of the build plan that are cross compiled have a cross file '''
+        checked = {}
+        for item in buildPlan:
+            builder = 'cmake' if isinstance(item, CMakeBuildArtifact) else 'meson' if isinstance(item, MesonBuildArtifact) else None
+            if not builder or not item.machine.crossCompilation:
+                continue
+
+            key = (id(item.machine), builder)
+            if key not in checked:
+                path = item.machine.getCrossPlatformFile(builder)
+                checked[key] = bool(path) and os.path.exists(path)
+                if not path:
+                    logging.error(f'no {builder} cross file to build for {item.machine.targetDistrib}@{item.machine.arch}, '
+                                  'use another toolchain or set CROSS_PLATFORM_FILE_CHOOSER')
+                elif not checked[key]:
+                    logging.error(f'{builder} cross file {path} does not exist')
+
+            if not checked[key]:
+                logging.error(f'unable to cross compile {item.name}')
+                return False
+        return True
 
     def treatPlatformPackages(self, pkgManager, packagesToCheck, buildItems) -> None:
         ''' '''
-        # let's compute platform package requirements
-        (shortName, longName) = self.targetMachine.packageKeys()
+        # let's compute platform package requirements, each artifact with the keys of its machine
+        machines = [self.targetMachine]
+        if self.buildMachine:
+            machines.append(self.buildMachine)
+        toolchainArtifacts = { id(m): [] for m in machines }
 
-        toolchainArtifacts = []
         for item in buildItems:
             if isinstance(item, str):
                 continue
 
-            toolchainArtifacts += item.toolchainArtifacts
+            machine = item.machine
+            toolchainArtifacts[id(machine)] += item.toolchainArtifacts
 
+            (shortName, longName) = machine.packageKeys()
             if longName in item.pkgs:
                 pkgs = item.pkgs[longName]
             elif shortName in item.pkgs:
                 pkgs = item.pkgs[shortName]
             else:
-                if not self.crossCompilation:
+                if not machine.crossCompilation:
                     logging.debug(f" * warning, {item.name} has no package dependency for the current platform")
                 continue
 
             packagesToCheck += pkgs[:]
 
         packagesToCheck = list(set(packagesToCheck))
-        toolchainArtifacts = list(set(toolchainArtifacts))
 
         if pkgManager:
-            if not self.toolchainObj.packagesCheck(pkgManager, toolchainArtifacts, True):
-                logging.error(" * package requirements not met")
-                return 5
+            for machine in machines:
+                if not machine.toolchainObj.packagesCheck(pkgManager, list(set(toolchainArtifacts[id(machine)])), True):
+                    logging.error(" * package requirements not met")
+                    return 5
 
             toInstall = pkgManager.checkMissing(packagesToCheck)
             if toInstall is None:
@@ -481,37 +542,45 @@ class AccendinoConfig:
                 buildPlan.append(itemStr)
         return True
 
-    def readSource(self, fname: str, include_once: bool) -> bool:
-        ''' '''
-        fpath = self.findSourceFile(fname, include_once)
-        if isinstance(fpath, bool):
-            # already included
-            return True
-
+    def readSource(self, fname: str, include_once: bool, ev: 'Evaluation' = None) -> bool:
+        ''' reads and executes an accendino file in the namespace of the given evaluation (the target one by default) '''
+        ev = ev or self.targetEval
+        fpath = self.findSourceFile(fname, ev)
         if fpath is None:
             logging.error(f'file {fname} not found')
             sys.exit(-1)
 
-        self.includesStack.append(fpath)
+        realPath = os.path.realpath(fpath)
+        if include_once and realPath in ev.includedFiles:
+            logging.debug(f"file '{fpath}' already included")
+            return True
+        ev.includedFiles.add(realPath)
+
+        ev.includesStack.append(fpath)
         with open(fpath, "rt", encoding="utf8") as f:
             code = compile(f.read(), os.path.basename(fpath), "exec")
-            exec(code, {}, self.context)
-        self.includesStack.pop()
+            exec(code, {}, ev.context)
+        ev.includesStack.pop()
         return True
 
-    def finalizeConfig(self) -> bool:
-        ''' '''
-        #
-        for buildItem in self.context.get('ARTIFACTS', []):
-            newDeps = []
-            for dep in buildItem.deps:
-                if isinstance(dep, str):
-                    newDeps.append(dep)
-                elif isinstance(dep, ConditionalDep):
-                    newDeps = dep.apply(self, newDeps)
-                else:
-                    logging.error(f'don\'t know how to treat artifact dependency with type {type(dep)}')
-            buildItem.deps = newDeps
+    def _resolveDeps(self, deps: T.List[T.Any]) -> T.List[str]:
+        ''' returns the list of artifact dependencies with the conditional ones applied '''
+        newDeps = []
+        for dep in deps:
+            if isinstance(dep, str):
+                newDeps.append(dep)
+            elif isinstance(dep, ConditionalDep):
+                newDeps = dep.apply(self, newDeps)
+            else:
+                logging.error(f'don\'t know how to treat artifact dependency with type {type(dep)}')
+        return newDeps
+
+    def _finalizeArtifacts(self, ev: Evaluation) -> T.List[DepsBuildArtifact]:
+        ''' resolves the conditional dependencies of the artifacts of an evaluation and binds them to its machine '''
+        ret = []
+        for buildItem in ev.context.get('ARTIFACTS', []):
+            buildItem.deps = self._resolveDeps(buildItem.deps)
+            buildItem.toolDeps = self._resolveDeps(buildItem.toolDeps)
 
             newPkg = {}
             for k, v in buildItem.pkgs.items():
@@ -526,9 +595,14 @@ class AccendinoConfig:
 
                 newPkg[k] = newList
             buildItem.pkgs = newPkg
-            buildItem.machine = self.targetMachine
+            buildItem.machine = ev.machine
+            ret.append(buildItem)
 
-            self.buildDefs.append(buildItem)
+        return ret
+
+    def finalizeConfig(self) -> bool:
+        ''' '''
+        self.buildDefs += self._finalizeArtifacts(self.targetEval)
 
         if not self.targets:
             defaultTargets = self.context.get('DEFAULT_TARGETS', 'ogon')
@@ -545,10 +619,87 @@ class AccendinoConfig:
         self.sourcesDir = self.projectDir / 'sources'
         self.buildsDir = self.projectDir / 'build'
         self.toolsDir = self.projectDir / 'tools'
+        if not self.buildToolsPrefix:
+            self.buildToolsPrefix = self.projectDir / 'deploy-build'
 
-        self.getCrossPlatformFile = self.context.get('CROSS_PLATFORM_FILE_CHOOSER', self.default_getCrossPlatformFile)
         self.targetMachine.prefix = self.prefix
-        self.targetMachine.crossPlatformFileChooser = self.getCrossPlatformFile
+        self.targetMachine.crossPlatformFileChooser = self.context.get('CROSS_PLATFORM_FILE_CHOOSER')
+        return True
+
+    @staticmethod
+    def _mergeToolDeps(item: DepsBuildArtifact) -> T.List[str]:
+        ''' returns the dependencies of item with its tool dependencies, without the ones on itself: an artifact can use
+            its own tools when it's built for the build machine (wayland and wayland-scanner for instance)
+        '''
+        provides = item.provides if isinstance(item.provides, list) else [item.provides]
+        selfNames = set([item.name] + provides)
+        return item.deps + [d for d in item.toolDeps if d not in item.deps and d not in selfNames]
+
+    def setupBuildMachine(self) -> bool:
+        ''' resolves the tool dependencies of the artifacts. Without cross compilation they are plain dependencies.
+            When cross compiling, the accendino files are evaluated a second time for the build machine, the
+            artifacts of that evaluation are named native:<name>, and tool dependencies point to them.
+        '''
+        targetItems = self.buildDefs[:]
+
+        if not self.crossCompilation:
+            for item in targetItems:
+                item.deps = self._mergeToolDeps(item)
+            return True
+
+        # artifacts that only exist for the build machine are not built for the target, references to them
+        # go to their native: version
+        buildOnlyNames = set()
+        for item in targetItems:
+            if item.buildMachineOnly:
+                buildOnlyNames.add(item.name)
+                buildOnlyNames.update(item.provides if isinstance(item.provides, list) else [item.provides])
+
+        if buildOnlyNames:
+            targetItems = [item for item in targetItems if not item.buildMachineOnly]
+            self.buildDefs = targetItems[:]
+            for item in targetItems:
+                item.toolDeps = item.toolDeps + [d for d in item.deps if d in buildOnlyNames and d not in item.toolDeps]
+                item.deps = [d for d in item.deps if d not in buildOnlyNames]
+            self.targets = [NATIVE_PREFIX + t if t in buildOnlyNames else t for t in self.targets]
+
+        needed = any(item.toolDeps for item in targetItems) or any(t.startswith(NATIVE_PREFIX) for t in self.targets)
+        if not needed:
+            return True
+
+        machine = Machine(self.distribId, self.distribVersion, self.distribId, self.localArch, self.localArch)
+        machine.prefix = self.buildToolsPrefix
+        machine.toolchainObj = getToolchain(self.buildToolchain, self, machine)
+        if not machine.toolchainObj:
+            logging.error(f"unable to find toolchain {self.buildToolchain} for the build machine")
+            return False
+        self.buildMachine = machine
+
+        logging.debug(f'evaluating accendino files for the build machine ({machine.distribId}@{machine.arch})')
+        ev = Evaluation(machine, True, self.targetMachine)
+        ev.toolchainName = self.buildToolchain
+        self.nativeEval = ev
+        self.newContext(ev)
+        ev.context.update(self._platformKeys(ev))
+        for f in self.sources:
+            if not self.readSource(f, True, ev):
+                logging.error(f"error interpreting {f} for the build machine")
+                return False
+
+        for item in self._finalizeArtifacts(ev):
+            # the build machine is not cross compiling, tools are plain dependencies there
+            deps = self._mergeToolDeps(item)
+            provides = item.provides if isinstance(item.provides, list) else [item.provides]
+
+            item.name = NATIVE_PREFIX + item.name
+            item.deps = [NATIVE_PREFIX + d for d in deps]
+            item.toolDeps = []
+            item.provides = [NATIVE_PREFIX + p for p in provides]
+            self.buildDefs.append(item)
+
+        for item in targetItems:
+            item.deps = item.deps + [NATIVE_PREFIX + d for d in item.toolDeps]
+
         return True
 
 
@@ -559,6 +710,8 @@ def createWorkTree(config) -> int:
         (config.sourcesDir, 'sources directory'),
         (config.buildsDir, 'builds directory'),
     ]
+    if config.buildMachine:
+        dirs.append((config.buildToolsPrefix, 'build machine root directory'))
 
     for dirItem in dirs:
         if not os.path.exists(dirItem[0]):
@@ -641,6 +794,10 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
             config.targetDistrib = value
     elif option in ('--toolchain',):
         config.toolchain = value
+    elif option in ('--buildToolsPrefix',):
+        config.buildToolsPrefix = pathlib.PurePath(os.path.abspath(value))
+    elif option in ('--buildToolchain',):
+        config.buildToolchain = value
     elif option in ("--project", ):
         config.projectName = value
     else:
@@ -658,7 +815,7 @@ def run(args: T.List[str]) -> int:
 
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "build-as-debug=", "options=",
-        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=",
+        "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=", "buildToolsPrefix=", "buildToolchain=",
         "buildWithPowershell", "version", "refreshSources", "refresh"
     ])
 
@@ -710,6 +867,8 @@ def run(args: T.List[str]) -> int:
             logging.error(f"error interpreting {f}")
             return 2
     config.finalizeConfig()
+    if not config.setupBuildMachine():
+        return 2
 
     for name in config.debugArtifacts:
         if not config.getBuildItem(name):
@@ -747,6 +906,15 @@ def run(args: T.List[str]) -> int:
     logging.debug(f'==> activating toolchain {config.toolchainObj.description}')
     if not config.toolchainObj.activate():
         logging.error('error activating toolchain')
+        return 6
+
+    if config.buildMachine:
+        logging.debug(f'==> activating build machine toolchain {config.buildMachine.toolchainObj.description}')
+        if not config.buildMachine.toolchainObj.activate():
+            logging.error('error activating the build machine toolchain')
+            return 6
+
+    if not config.checkCrossFiles(buildPlan):
         return 6
 
 

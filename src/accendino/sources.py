@@ -35,9 +35,7 @@ class LocalSource(Source):
     def checkout(self, target_dir: str, _flog, _refresh: bool = False) -> bool:
         self.refreshed = False
         if os.path.exists(target_dir):
-            if not self.symlink:
-                if os.path.islink(target_dir):
-                    return True
+            if not self.symlink and os.path.islink(target_dir):
                 logging.error(f"{target_dir} is a symlink, but we should do a hardcopy of the source tree" +
                               f" at {self.srcdir}. Please fix this by hand")
                 return False

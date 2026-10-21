@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building protobuf (libprotobuf, libprotoc and protoc)
+#
+#    options:
+#      * fromSources: force build from sources
+#      * withProtoc: also build libprotoc and protoc. When cross compiling only the libraries are built by default,
+#        as protoc would be a binary for the target.
+#
+#    protoc and libprotobuf must have the same version: when building the tools of the build machine, protobuf is
+#    built from sources (from the same tag) if it's the case for the target, and statically so that protoc runs
+#    without the libraries of the build prefix.
+#
+#    abseil comes from protobuf's abseil-cpp submodule and is installed in the prefix along with protobuf.
+#
+
+protobuf_pkgDeps = {
+    UBUNTU_LIKE: ['libprotobuf-dev', 'libprotoc-dev', 'protobuf-compiler'],
+    REDHAT_LIKE: ['protobuf-devel', 'protobuf-compiler'],
+    'Arch|FreeBSD|Darwin': ['protobuf'],
+}
+
+# the distribution protobuf is built for, the target even when building the tools for it
+protobuf_forDistribId = toolsForDistribId if buildingTools else targetDistribId
+protobuf_fromSources = getOption('protobuf.fromSources', protobuf_forDistribId in ('Windows', 'mingw', 'emscripten',))
+
+if protobuf_fromSources:
+    protobuf_withProtoc = getOption('protobuf.withProtoc', not crossCompilation)
+
+    # shared protobuf and abseil libraries are only built on ELF platforms, protobuf's and abseil's DLLs are
+    # not well supported with MSVC and mingw, and emscripten has no shared libraries. Tools are static.
+    protobuf_shared = 'ON' if not buildingTools and targetDistribId not in ('Windows', 'mingw', 'emscripten',) else 'OFF'
+
+    protobuf_opts = [
+        '-Dprotobuf_BUILD_TESTS=OFF',
+        '-Dprotobuf_BUILD_CONFORMANCE=OFF',
+        '-Dprotobuf_BUILD_EXAMPLES=OFF',
+        '-Dprotobuf_INSTALL=ON',
+        '-Dprotobuf_ABSL_PROVIDER=module',
+        '-DABSL_PROPAGATE_CXX_STD=ON',
+        '-DCMAKE_CXX_STANDARD=17',
+        '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
+        f'-DBUILD_SHARED_LIBS={protobuf_shared}',
+        f'-Dprotobuf_BUILD_SHARED_LIBS={protobuf_shared}',
+        f'-Dprotobuf_BUILD_LIBPROTOC={"ON" if protobuf_withProtoc else "OFF"}',
+        f'-Dprotobuf_BUILD_PROTOC_BINARIES={"ON" if protobuf_withProtoc else "OFF"}',
+    ]
+
+    if targetDistribId == 'Windows':
+        protobuf_opts.append('-Dprotobuf_MSVC_STATIC_RUNTIME=OFF')
+
+    # v33.x is the last series with FieldDescriptor::label(), removed in v34, that protobuf-c 1.5.2 still uses
+    ARTIFACTS += [
+        CMakeBuildArtifact('protobuf', [],
+            stdGitSourceFromOptions('protobuf', 'https://github.com/protocolbuffers/protobuf.git', 'v33.6'),
+            cmakeOpts=protobuf_opts,
+            provides=['protobuf-artifact'],
+            toolchainArtifacts='c,c++',
+        )
+    ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('protobuf-artifact', [], pkgs=protobuf_pkgDeps)
+    ]

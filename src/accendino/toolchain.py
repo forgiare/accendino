@@ -8,6 +8,8 @@ from zenlog import log as logging
 from accendino.localdeps import PackageManager
 from accendino.utils import treatPackageDeps
 
+# the cross files shipped with accendino
+CROSS_FILE_DIR = pathlib.Path(__file__).parent / 'cross'
 
 class IToolChain:
     ''' Abstract toolchain '''
@@ -70,6 +72,14 @@ class IToolChain:
             @returns some extra environment variable when building
         '''
         return {}
+
+    def crossFile(self, _builder: str) -> T.Optional[str]:
+        ''' returns the cross file (cmake toolchain file, meson cross file) to build for the machine of this toolchain
+            when cross compiling
+            @param _builder: the builder, cmake or meson
+            @return the path of the cross file, None if the toolchain has none
+        '''
+        return None
 
 def computeEnvDiff(inputIter):
     '''
@@ -314,6 +324,15 @@ class MingwToolChain(IToolChain):
 
         return ret
 
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        bits = '64' if self.machine.arch == 'x86_64' else '32'
+        if self.machine.distribId in ('Redhat', 'Fedora',):
+            return f'/usr/share/mingw/toolchain-mingw{bits}.{builder}'
+
+        if self.machine.distribId in ('Ubuntu', 'Debian',):
+            return str(CROSS_FILE_DIR / f'debian-mingw{bits}.{builder}')
+
+        return None
 
 
 EMSDK_DEFAULT_VERSION = '6.0.11'
@@ -428,6 +447,10 @@ class EmscriptenToolChain(IToolChain):
                 ret['CXX'] = 'em++'
         return ret
 
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        # these use the emsdk set up by activate(), whatever the host
+        return str(CROSS_FILE_DIR / f'emscripten.{builder}')
+
 
 class DefaultToolChain(IToolChain):
     ''' Toolchain that does some smart default depending '''
@@ -466,6 +489,9 @@ class DefaultToolChain(IToolChain):
 
     def extraEnv(self, artifacts) -> T.Dict[str, str]:
         return self.selectedObj.extraEnv(artifacts)
+
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        return self.selectedObj.crossFile(builder) if self.selectedObj else None
 
 
 

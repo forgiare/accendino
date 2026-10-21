@@ -31,7 +31,8 @@ class Machine:
 
         # set once the accendino files have been read
         self.prefix = None
-        self.crossPlatformFileChooser: T.Callable[[str, str, str, str], str] = None
+        # CROSS_PLATFORM_FILE_CHOOSER of the accendino files, overrides the cross files of the toolchain
+        self.crossPlatformFileChooser: T.Optional[T.Callable[[str, 'Machine'], T.Optional[str]]] = None
 
     def packageKeys(self) -> T.Tuple[str, str]:
         ''' returns the keys used to look up platform packages, the short one (Ubuntu, Fedora->mingw@x86_64, ...)
@@ -45,9 +46,15 @@ class Machine:
             longName += f'->{self.targetDistrib}@{self.arch}'
         return (shortName, longName)
 
-    def getCrossPlatformFile(self, builder: str) -> str:
-        ''' returns the cross file (cmake toolchain file, meson cross file, ...) for the given builder
+    def getCrossPlatformFile(self, builder: str) -> T.Optional[str]:
+        ''' returns the cross file (cmake toolchain file, meson cross file, ...) for the given builder: the one of
+            crossPlatformFileChooser if it returns one, the one of the toolchain otherwise
             @param builder: the builder, cmake or meson
             @return the path of the cross file, None if there's none
         '''
-        return self.crossPlatformFileChooser(builder, self.distribId, self.targetDistrib, self.arch)
+        if self.crossPlatformFileChooser:
+            ret = self.crossPlatformFileChooser(builder, self)
+            if ret:
+                return str(ret)
+
+        return self.toolchainObj.crossFile(builder) if self.toolchainObj else None
