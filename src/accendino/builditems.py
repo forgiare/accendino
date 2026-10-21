@@ -254,7 +254,7 @@ class BuildArtifact(DepsBuildArtifact):
         # add a PKG_CONFIG_LIBDIR
         xkeys.append('PKG_CONFIG_LIBDIR')
         pkg_config_path = ':'.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
-                                                 orig_pkg_config_path))
+                                                 orig_pkg_config_path, self.machine.crossCompilation))
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,

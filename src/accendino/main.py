@@ -36,7 +36,7 @@ def doHelp(args, is_error) -> int:
     print("\t--refreshSources: force updating git sources and rebuild artifacts whose sources changed")
     print("\t--refresh: force rebuild of the requested targets, even if they were already built")
     print("\t--targetDistrib=<distrib>: cross compile for mingw32, mingw64 or emscripten")
-    print("\t--targetArch=<arch>: the target architecture (i686, x86_64 or wasm32)")
+    print("\t--targetArch=<arch>: the target architecture (i686, x86_64, arm64 (or aarch64) or wasm32)")
     print("\t--toolchain=<name>: the toolchain to use (default, gcc, clang, vs, mingw, emscripten)")
     print("\t--buildToolsPrefix=<prefix>: when cross compiling, where tools for the build machine are installed")
     print("\t--buildToolchain=<name>: when cross compiling, the toolchain building tools for the build machine")
@@ -119,7 +119,7 @@ def detectPlatform() -> None:
 
 
 BUILD_TYPES = ('release', 'debug',)
-ARCHS = ('i686', 'x86_64', 'wasm32')
+ARCHS = ('i686', 'x86_64', 'arm64', 'wasm32')
 
 # prefix of the names of the artifacts built for the build machine when cross compiling
 NATIVE_PREFIX = 'native:'
@@ -148,6 +148,8 @@ class Evaluation:
 ARCHS_MAP = {
     'AMD64': 'x86_64', # Windows
     'amd64': 'x86_64', # FreeBSD
+    'aarch64': 'arm64', # Linux
+    'ARM64': 'arm64', # Windows
 }
 
 class AccendinoConfig:
@@ -773,6 +775,7 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
             return _ARGS_ERROR
         config.optionsFile = value
     elif option in ("--targetArch", ):
+        value = ARCHS_MAP.get(value, value)
         if not value in ARCHS:
             logging.error(f'arch {value} not yet supported')
             return _ARGS_ERROR

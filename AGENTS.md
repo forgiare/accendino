@@ -71,8 +71,8 @@ Everything lives under `src/accendino/`:
 - **`toolchain.py`** — `IToolChain` subclasses (`GccToolChain`, `ClangToolChain`, `MingwToolChain`,
   `VsToolChain`, `EmscriptenToolChain`, `DefaultToolChain`) abstract compiler selection/activation and platform package
   requirements per toolchain. `EmscriptenToolChain` uses `$EMSDK` or installs emsdk in the project's `tools/`
-  directory; `crossFile()` gives the cmake/meson cross file of a toolchain (`mingw` and `emscripten` ones, mostly from
-  `src/accendino/cross/`), `CROSS_PLATFORM_FILE_CHOOSER` can override it (`Machine.getCrossPlatformFile()`). `DefaultToolChain` autodetects by probing which toolchain's required
+  directory; `crossFile()` gives the cmake/meson cross file of a toolchain (`mingw`, `emscripten`, and `clang` for the other
+  macOS architecture, mostly from `src/accendino/cross/`), `CROSS_PLATFORM_FILE_CHOOSER` can override it (`Machine.getCrossPlatformFile()`). `DefaultToolChain` autodetects by probing which toolchain's required
   packages are satisfiable.
 - **`localdeps.py`** — `PackageManagerBase` subclasses per OS package manager (`dpkg`, `rpm`, `pacman`,
   `pkg`, `chocolatey`, `brew`, msys2); `getPkgManager()` picks one from the detected distro.

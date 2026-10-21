@@ -199,6 +199,7 @@ class VsToolChain(IToolChain):
 
         VSDEVCMD_ARCHS = {
             "x86_64": "amd64",
+            "arm64": "arm64",
         }
 
         # run once the VsDevCmd.bat to catch the extra environment
@@ -278,7 +279,30 @@ class ClangToolChain(IToolChain):
                 ret['CC'] = 'clang'
             elif artifact == 'c++':
                 ret['CXX'] = 'clang++'
+
+        darwinArch = self._darwinCrossArch()
+        if darwinArch:
+            # for the builds without cross file (autotools, make, ...), the cmake and meson cross files also set it
+            for k in ('CFLAGS', 'CXXFLAGS', 'OBJCFLAGS', 'OBJCXXFLAGS', 'LDFLAGS'):
+                ret[k] = (os.environ.get(k, '') + f' -arch {darwinArch}').strip()
         return ret
+
+    def _darwinCrossArch(self) -> T.Optional[str]:
+        ''' returns the clang -arch value when building on macOS for the other macOS architecture, None otherwise '''
+        m = self.machine
+        if m.crossCompilation and m.distribId == 'Darwin' and m.targetDistrib == 'Darwin':
+            return DARWIN_ARCHS.get(m.arch)
+        return None
+
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        darwinArch = self._darwinCrossArch()
+        return str(CROSS_FILE_DIR / f'darwin-{darwinArch}.{builder}') if darwinArch else None
+
+# the macOS architectures, accendino names them like Apple's clang -arch
+DARWIN_ARCHS = {
+    'x86_64': 'x86_64',
+    'arm64': 'arm64',
+}
 
 class MingwToolChain(IToolChain):
     ''' Toolchain with mingw '''

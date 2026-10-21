@@ -25,7 +25,8 @@ _Accendino_ accepts the following command line arguments:
 * `--targetDistrib=<distrib>`: cross compile for another platform: `mingw32` / `mingw64` (Windows binaries built with
   mingw) or `emscripten` (WebAssembly for the browser or node, see [Building for emscripten](#building-for-emscripten)).
   These also set the target arch and the toolchain
-* `--targetArch=<arch>`: the target architecture (`i686`, `x86_64` or `wasm32`), the local one by default
+* `--targetArch=<arch>`: the target architecture (`i686`, `x86_64`, `arm64` or `wasm32`), the local one by default.
+  `aarch64` is accepted for `arm64`, see [Building for the other macOS architecture](#building-for-the-other-macos-architecture)
 * `--toolchain=<name>`: the toolchain to use: `default` (autodetected), `gcc`, `clang`, `vs`, `vs/<flavor>`, `mingw`
   or `emscripten`
 * `--buildToolsPrefix=<path>`: when cross compiling, where the tools built for the build machine are installed
@@ -124,7 +125,8 @@ _Accendino_ reads a source file and interprets it as a python file and when done
      that returns the path of the cross compilation file for the given `builder` (`cmake` or `meson` for now) when cross
      compiling for `machine` (it has `distribId`, `targetDistrib`, `arch`, `toolchainObj`, ...). When it's not defined or
      returns `None`, the cross file of the toolchain is used: the `mingw` toolchain has cross files for Debian/Ubuntu
-     (shipped with _Accendino_) and Fedora/Redhat (the ones of the distribution), the `emscripten` toolchain has its own.
+     (shipped with _Accendino_) and Fedora/Redhat (the ones of the distribution), the `emscripten` toolchain has its own and
+     the `clang` toolchain (the default on macOS) has the ones to build for the other macOS architecture.
      A cross compilation without cross file stops before building
 
 When interpreting the source file _Accendino_ provides some useful variables and functions to the source file:
@@ -135,7 +137,8 @@ When interpreting the source file _Accendino_ provides some useful variables and
 * `buildType : str`: the kind of build usually contains `debug` or `release`
 * `distribId : str`: the local distribution id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin` (for MacOsX)
 * `distribVersion : str`: the version associated with the distribution in `distribId`
-* `targetArch : str`: the destination architecture `x86_64`, `i686`, ...
+* `targetArch : str`: the destination architecture `x86_64`, `i686`, `arm64` (also on Linux where the
+  system calls it `aarch64`), `wasm32`
 * `targetDistribId : str`: the destination target id can be `Debian`, `Ubuntu`, `redhat`, `Fedora`, `Windows`, `Darwin`, `mingw` or `emscripten`
 * `toolchain : str`: name of the toolchain
 * `crossCompilation : bool`: tells if the build is any kind of cross compilation
@@ -397,3 +400,24 @@ What changes compared to a native build:
 * platform packages can't satisfy a dependency: _Accendino_ files must build it from sources when `targetDistribId` is
   `emscripten`. For autotools based projects pass `--host=wasm32-unknown-emscripten` in the configure arguments.
 
+## Building for the other macOS architecture
+
+On macOS, `--targetArch=x86_64` on an Apple Silicon machine or `--targetArch=arm64` on an Intel one
+cross compiles for the other architecture with Apple's clang:
+* the cmake cross file sets `CMAKE_OSX_ARCHITECTURES`, `CMAKE_SYSTEM_NAME` (so `CMAKE_CROSSCOMPILING` is true) and
+  ignores the Homebrew prefix; the meson one passes `-arch` to the compilers and linkers. Other builds (autotools,
+  custom commands) get `-arch` in `CFLAGS`, `CXXFLAGS`, `OBJCFLAGS`, `OBJCXXFLAGS` and `LDFLAGS`, autotools projects
+  building for arm64 on Intel also need `--host=aarch64-apple-darwin` in their configure arguments;
+* x86_64 binaries run on Apple Silicon with Rosetta, so meson runs its checks for x86_64 without an exe wrapper;
+* Homebrew only has libraries for the local architecture: `PKG_CONFIG_LIBDIR` doesn't contain its directories and
+  _Accendino_ files must build the target libraries from sources when `crossCompilation` is true. Package keys stay
+  `Darwin`, so Homebrew packages still provide the build tools (cmake, ninja, meson, ...);
+* tools are built for the local architecture as `native:` artifacts, see
+  [Tools for the build machine](#tools-for-the-build-machine).
+
+Without cross compilation, `PKG_CONFIG_LIBDIR` contains Homebrew's `lib/pkgconfig` and `share/pkgconfig` (Homebrew
+is found with `$HOMEBREW_PREFIX`, `/opt/homebrew` or `/usr/local`), as setting `PKG_CONFIG_LIBDIR` replaces the default
+search path of Homebrew's `pkg-config`.
+
+Universal binaries are made by building the project twice, once per architecture with a different `--prefix`, and
+merging the results with `lipo`; _Accendino_ doesn't do this last step.
