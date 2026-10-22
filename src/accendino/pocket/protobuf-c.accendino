@@ -1,0 +1,76 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Detecting or building protobuf-c
+#
+#    options:
+#      * fromSources: force build from sources
+#      * withCompiler: also build protoc-gen-c (the protoc plugin), it needs protobuf (libprotobuf and protoc).
+#        When cross compiling only the runtime library is built by default.
+#
+#    When cross compiling, consumers that generate code put protobuf-c-artifact (and protobuf-artifact for protoc) in
+#    their toolDeps: the build machine evaluation builds protoc-gen-c, from sources when the target library is built
+#    from sources so that both have the same version, and statically.
+#
+
+protobuf_c_pkgDeps = {
+    UBUNTU_LIKE: ['libprotobuf-c-dev', 'protobuf-c-compiler'],
+    REDHAT_LIKE: ['protobuf-c-devel', 'protobuf-c-compiler'],
+    'Arch|FreeBSD|Darwin': ['protobuf-c'],
+}
+
+# the distribution protobuf-c is built for, the target even when building the tools for it
+protobuf_c_forDistribId = toolsForDistribId if buildingTools else targetDistribId
+protobuf_c_fromSources = getOption('protobuf-c.fromSources', protobuf_c_forDistribId in ('Windows', 'mingw', 'emscripten',))
+
+if protobuf_c_fromSources:
+    protobuf_c_src = stdGitSourceFromOptions('protobuf-c', 'https://github.com/protobuf-c/protobuf-c.git', 'v1.5.2')
+    protobuf_c_withCompiler = getOption('protobuf-c.withCompiler', not crossCompilation)
+
+    if protobuf_c_withCompiler:
+        # the CMake build always looks for protobuf, even with BUILD_PROTOC=OFF
+        include('protobuf.accendino')
+
+        # protobuf is built static on Windows, protobuf-c's CMake expects both to match with MSVC. Tools are static.
+        protobuf_c_shared = 'OFF' if buildingTools or targetDistribId == 'Windows' else 'ON'
+
+        ARTIFACTS += [
+            CMakeBuildArtifact('protobuf-c', ['protobuf-artifact'], protobuf_c_src,
+                cmakeOpts=['-DBUILD_PROTOC=ON', '-DBUILD_TESTS=OFF', f'-DBUILD_SHARED_LIBS={protobuf_c_shared}'],
+                cmakeProjectDir='{srcdir}/build-cmake',
+                provides=['protobuf-c-artifact'],
+                toolchainArtifacts='c,c++',
+            )
+        ]
+    else:
+        # runtime library only, the autotools build doesn't need protobuf in this case
+        protobuf_c_configureArgs = ['--disable-protoc']
+        if targetDistribId == 'mingw':
+            protobuf_c_configureArgs += [f'--host={targetArch}-w64-mingw32']
+        elif targetDistribId == 'emscripten':
+            protobuf_c_configureArgs += ['--host=wasm32-unknown-emscripten', '--disable-shared']
+
+        # AutogenBuildArtifact only adds the autotools packages for native builds, add them for the cross target
+        protobuf_c_buildPkgDeps = {}
+        protobuf_c_crossKey = f'->{targetDistribId}@{targetArch}'
+        for protobuf_c_distribs, protobuf_c_tools in (
+                    (('Ubuntu', 'Debian'), ['make', 'automake', 'autoconf', 'libtool', 'pkgconf|pkg-config']),
+                    (('Fedora', 'Redhat'), ['make', 'automake', 'autoconf', 'libtool', 'pkgconf-pkg-config']),
+                ):
+            for protobuf_c_distrib in protobuf_c_distribs:
+                protobuf_c_buildPkgDeps[protobuf_c_distrib + protobuf_c_crossKey] = protobuf_c_tools
+
+        ARTIFACTS += [
+            AutogenBuildArtifact('protobuf-c', [], protobuf_c_src,
+                configureArgs=protobuf_c_configureArgs,
+                pkgs=protobuf_c_buildPkgDeps,
+                provides=['protobuf-c-artifact'],
+            )
+        ]
+
+else:
+    ARTIFACTS += [
+        DepsBuildArtifact('protobuf-c-artifact', [], pkgs=protobuf_c_pkgDeps)
+    ]

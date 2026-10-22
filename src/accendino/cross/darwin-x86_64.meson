@@ -1,0 +1,30 @@
+# cross file for macOS x86_64 binaries, built on a macOS Apple Silicon machine with Apple's clang
+
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+objc = 'clang'
+objcpp = 'clang++'
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[built-in options]
+c_args = ['-arch', 'x86_64']
+cpp_args = ['-arch', 'x86_64']
+objc_args = ['-arch', 'x86_64']
+objcpp_args = ['-arch', 'x86_64']
+c_link_args = ['-arch', 'x86_64']
+cpp_link_args = ['-arch', 'x86_64']
+objc_link_args = ['-arch', 'x86_64']
+objcpp_link_args = ['-arch', 'x86_64']
+
+[properties]
+# x86_64 binaries run on Apple Silicon with Rosetta
+needs_exe_wrapper = false
+
+[host_machine]
+system = 'darwin'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'

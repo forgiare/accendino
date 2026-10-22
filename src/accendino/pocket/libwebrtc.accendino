@@ -1,0 +1,86 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Retrieving a libwebrtc binary distribution (https://github.com/webrtc-sdk/libwebrtc/releases), the C++
+#    wrapper around Google's WebRTC. Building it from sources needs a full depot_tools / gclient checkout of
+#    WebRTC (several GB), so we only use the prebuilt releases.
+#
+#    The releases have H.264 (OpenH264 / FFmpeg), H.265, VP8, VP9 and AV1 statically linked in, audio codecs
+#    are the WebRTC ones (Opus, G.711, G.722, ...): there's no AAC in WebRTC.
+#
+#    options (in the [libwebrtc] section):
+#      * version: the release tag without the "libwebrtc." prefix (like m150.7871.04)
+#      * sha256: expected sha256 of the archive, needed to check the download when not using the default version
+#
+#    the distribution is installed in the deploy tree (see libwebrtc/CMakeLists.txt for details): headers in
+#    <prefix>/include/libwebrtc, the library in <prefix>/lib (the dll in <prefix>/bin on Windows) and a
+#    LibWebRTC package in <prefix>/lib/cmake/LibWebRTC so consumers using CMake can use find_package(LibWebRTC)
+#    and link with LibWebRTC::libwebrtc. On Linux a libwebrtc.pc is also installed.
+#
+#    On Linux the library embeds its own libc++ (Chromium's use_custom_libcxx), that's harmless as long as only
+#    the libwebrtc API is used: it is built on portable::string / portable::vector, not on std types.
+#
+
+libwebrtc_defaultVersion = 'm150.7871.04'
+libwebrtc_defaultSha256s = {
+    'linux-x64': '39efac2abd9b4ef6c1088f098d8ae8f1e62c7d8726b61344ac73ac8d748ad319',
+    'linux-arm64': '5490f26d2ab3bb2108c349162453623ab00c5723fc144e9ca77fcfff78805dc2',
+    'win-x64': '3bc70034b62cfba19ff24c1a30c7768832990713198038bf9cc56de70c3974cb',
+    'win-arm64': '99b5ba304e077151e47e70f5a92450292563effc38de7538c2b67f610ab74a9d',
+}
+
+libwebrtc_archs = {
+    'x86_64': 'x64',
+    'aarch64': 'arm64',
+    'arm64': 'arm64',
+    'ARM64': 'arm64',
+}
+libwebrtc_arch = libwebrtc_archs.get(targetArch, None)
+if libwebrtc_arch is None:
+    abort(f'libwebrtc: arch {targetArch} not supported')
+
+if targetDistribId == 'Windows':
+    libwebrtc_os = 'win'
+elif targetDistribId in ('mingw', 'FreeBSD', 'Darwin'):
+    abort(f'libwebrtc: no binary distribution for {targetDistribId}')
+else:
+    libwebrtc_os = 'linux'
+
+libwebrtc_platform = f'{libwebrtc_os}-{libwebrtc_arch}'
+libwebrtc_version = getOption('libwebrtc.version', libwebrtc_defaultVersion)
+
+libwebrtc_sha256 = getOption('libwebrtc.sha256', None)
+if libwebrtc_sha256 is None and libwebrtc_version == libwebrtc_defaultVersion:
+    libwebrtc_sha256 = libwebrtc_defaultSha256s[libwebrtc_platform]
+
+libwebrtc_url = 'https://github.com/webrtc-sdk/libwebrtc/releases/download/' \
+                f'libwebrtc.{libwebrtc_version}/libwebrtc-{libwebrtc_platform}-release.zip'
+
+libwebrtc_installProject = findAsset('libwebrtc', 'CMakeLists.txt')
+if libwebrtc_installProject is None:
+    abort('libwebrtc: unable to find libwebrtc/CMakeLists.txt')
+
+# the library is linked with these at runtime, they're needed to link consumers against it
+libwebrtc_pkgs = {
+    'Ubuntu|Debian': ['libglib2.0-dev', 'libx11-dev', 'libxcomposite-dev', 'libxdamage-dev', 'libxext-dev',
+                      'libxfixes-dev', 'libxrandr-dev', 'libgbm-dev', 'libdrm-dev'],
+    'Fedora|Redhat': ['glib2-devel', 'libX11-devel', 'libXcomposite-devel', 'libXdamage-devel', 'libXext-devel',
+                      'libXfixes-devel', 'libXrandr-devel', 'mesa-libgbm-devel', 'libdrm-devel'],
+}
+
+ARTIFACTS += [
+    CMakeBuildArtifact('libwebrtc', [],
+        # the top directory is linux-x64-release/ on Linux but libwebrtc-x64-release/ on Windows
+        RemoteArchiveSource(libwebrtc_url, saveAs=f'libwebrtc-{libwebrtc_version}-{libwebrtc_platform}-release.zip',
+                            strip_depth=1, checked_file='include/libwebrtc.h', sha256=libwebrtc_sha256),
+        cmakeProjectDir=libwebrtc_installProject[:-len('CMakeLists.txt')],
+        cmakeOpts=[
+            '-DLIBWEBRTC_DIST_DIR={srcdir_posix}',
+            f'-DLIBWEBRTC_VERSION={libwebrtc_version}',
+        ],
+        pkgs=libwebrtc_pkgs,
+        provides=['libwebrtc-artifact']
+    ),
+]

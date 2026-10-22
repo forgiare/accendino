@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort <contact@hardening-consulting.com>
+#
+#    Building libwebrtc-c, a C API over webrtc-sdk/libwebrtc for FreeRDP's multimedia redirection channel
+#
+#    options (in the [libwebrtc-c] section):
+#      * url: git url of the repository
+#      * tag: branch or tag to build (master by default)
+#
+include('libwebrtc')
+
+# the project requires meson >= 1.0
+libwebrtc_c_mesonVersion = 'system'
+if checkDistrib('< Ubuntu 23.04') or checkDistrib('< Debian 12') or checkDistrib('< Redhat 10'):
+    libwebrtc_c_mesonVersion = 'latest'
+
+libwebrtc_c_mesonOpts = ['-Ddefault_library=shared', '-Dtests=false']
+if targetDistribId != 'Windows':
+    # libwebrtc.so is never in a system directory, so let libwebrtc-c.so find it at runtime (meson puts the
+    # library in lib/<multiarch> on Debian-like systems, not next to libwebrtc.so)
+    libwebrtc_c_mesonOpts.append('-Dcpp_link_args=-Wl,-rpath,{prefix}/{libdir}')
+
+ARTIFACTS += [
+    MesonBuildArtifact('libwebrtc-c', ['libwebrtc-artifact'],
+        stdGitSourceFromOptions('libwebrtc-c', 'https://github.com/hardening/libwebrtc-c.git', 'master'),
+        mesonOpts=libwebrtc_c_mesonOpts,
+        toolchainArtifacts='c,c++',
+        provides=['libwebrtc-c-artifact'],
+        mesonVersion=libwebrtc_c_mesonVersion
+    ),
+]

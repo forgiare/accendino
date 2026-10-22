@@ -20,7 +20,9 @@ if wayland_protocols_fromSources:
             mesonOpts=[],
             pkgs=wayland_protocols_pkgDeps,
             provides=['wayland-protocols-artifact'],
-            mesonVersion='latest'
+            mesonVersion='latest',
+            # wayland-scanner runs to check the protocols
+            toolDeps=['wayland-artifact'],
         ),
     ]
 

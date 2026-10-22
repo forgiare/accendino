@@ -8,15 +8,23 @@ from zenlog import log as logging
 from accendino.localdeps import PackageManager
 from accendino.utils import treatPackageDeps
 
+# the cross files shipped with accendino
+CROSS_FILE_DIR = pathlib.Path(__file__).parent / 'cross'
 
 class IToolChain:
     ''' Abstract toolchain '''
 
-    def __init__(self, name, config):
+    def __init__(self, name, config, machine=None):
+        '''
+            @param name: name of the toolchain
+            @param config: the accendino configuration
+            @param machine: the machine the toolchain builds for, defaults to the target machine
+        '''
         self.name = name
         self.description = name
         self.artifactRequires = {}
         self.config = config
+        self.machine = machine if machine else config.targetMachine
 
     def packagesCheck(self, packageManager: PackageManager, artifacts: T.List[str], doInstall: bool) -> bool:
         '''
@@ -26,13 +34,7 @@ class IToolChain:
             @param doInstall: tell if we should install missing packages
             @return if the operation was successful
         '''
-        config = self.config
-        shortName = f"{config.distribId}"
-        longName = f"{config.distribId} {config.distribVersion}"
-        if config.targetDistrib != config.distribId:
-            # cross compiling adjusting the searched names
-            shortName += f'->{config.targetDistrib}@{config.targetArch}'
-            longName += f'->{config.targetDistrib}@{config.targetArch}'
+        (shortName, longName) = self.machine.packageKeys()
 
         toCheck = []
         for artifact in artifacts:
@@ -70,6 +72,14 @@ class IToolChain:
             @returns some extra environment variable when building
         '''
         return {}
+
+    def crossFile(self, _builder: str) -> T.Optional[str]:
+        ''' returns the cross file (cmake toolchain file, meson cross file) to build for the machine of this toolchain
+            when cross compiling
+            @param _builder: the builder, cmake or meson
+            @return the path of the cross file, None if the toolchain has none
+        '''
+        return None
 
 def computeEnvDiff(inputIter):
     '''
@@ -127,8 +137,8 @@ KNOWN_VS_FLAVORS = ('msvc', 'clang')
 class VsToolChain(IToolChain):
     ''' Toolchain using visual studio '''
 
-    def __init__(self, config, flavor='msvc'):
-        IToolChain.__init__(self, 'MsvcToolChain', config)
+    def __init__(self, config, flavor='msvc', machine=None):
+        IToolChain.__init__(self, 'MsvcToolChain', config, machine)
         self.artifactRequires = {
             'c': {
                 'Windows': ['choco/vswhere|path/vswhere.exe'],
@@ -147,14 +157,13 @@ class VsToolChain(IToolChain):
 
 
     def activate(self) -> bool:
-        config = self.config
         if self.flavor == 'msvc':
             archsEquiv = {
                 "x86_64": "x86.x64",
                 "arm64": "ARM64"
             }
 
-            component = f'Microsoft.VisualStudio.Component.VC.Tools.{archsEquiv.get(config.targetArch, "x86.x64")}'
+            component = f'Microsoft.VisualStudio.Component.VC.Tools.{archsEquiv.get(self.machine.arch, "x86.x64")}'
         elif self.flavor == 'clang':
             component = 'Microsoft.VisualStudio.Component.VC.Llvm.Clang'
         else:
@@ -190,11 +199,12 @@ class VsToolChain(IToolChain):
 
         VSDEVCMD_ARCHS = {
             "x86_64": "amd64",
+            "arm64": "arm64",
         }
 
         # run once the VsDevCmd.bat to catch the extra environment
         with tempfile.NamedTemporaryFile(suffix='.bat', mode='wt', encoding='utf-8', delete_on_close=False) as t:
-            t.write(f'@set\n@echo ========\n@call "{str(self.setvarsPath)}" -arch={VSDEVCMD_ARCHS.get(config.targetArch, config.targetArch)}\n@set')
+            t.write(f'@set\n@echo ========\n@call "{str(self.setvarsPath)}" -arch={VSDEVCMD_ARCHS.get(self.machine.arch, self.machine.arch)}\n@set')
             t.flush()
             t.close()
 
@@ -216,8 +226,8 @@ class VsToolChain(IToolChain):
 class GccToolChain(IToolChain):
     ''' Toolchain with GCC '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'Gcc', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'Gcc', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Debian|Ubuntu|Fedora|Redhat': ['gcc'],
@@ -247,8 +257,8 @@ class GccToolChain(IToolChain):
 class ClangToolChain(IToolChain):
     ''' Toolchain with clang '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'Clang', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'Clang', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Debian|Ubuntu|Fedora|Redhat': ['clang'],
@@ -269,13 +279,36 @@ class ClangToolChain(IToolChain):
                 ret['CC'] = 'clang'
             elif artifact == 'c++':
                 ret['CXX'] = 'clang++'
+
+        darwinArch = self._darwinCrossArch()
+        if darwinArch:
+            # for the builds without cross file (autotools, make, ...), the cmake and meson cross files also set it
+            for k in ('CFLAGS', 'CXXFLAGS', 'OBJCFLAGS', 'OBJCXXFLAGS', 'LDFLAGS'):
+                ret[k] = (os.environ.get(k, '') + f' -arch {darwinArch}').strip()
         return ret
+
+    def _darwinCrossArch(self) -> T.Optional[str]:
+        ''' returns the clang -arch value when building on macOS for the other macOS architecture, None otherwise '''
+        m = self.machine
+        if m.crossCompilation and m.distribId == 'Darwin' and m.targetDistrib == 'Darwin':
+            return DARWIN_ARCHS.get(m.arch)
+        return None
+
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        darwinArch = self._darwinCrossArch()
+        return str(CROSS_FILE_DIR / f'darwin-{darwinArch}.{builder}') if darwinArch else None
+
+# the macOS architectures, accendino names them like Apple's clang -arch
+DARWIN_ARCHS = {
+    'x86_64': 'x86_64',
+    'arm64': 'arm64',
+}
 
 class MingwToolChain(IToolChain):
     ''' Toolchain with mingw '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'mingw', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'mingw', config, machine)
         self.artifactRequires = {
             'c': treatPackageDeps({
                 'Ubuntu->mingw@i686': ['gcc-mingw-w64-i686-posix'],
@@ -309,31 +342,157 @@ class MingwToolChain(IToolChain):
         ret = {}
         for artifact in artifacts:
             if artifact in VAR_ENV_PER_ARTIFACT:
-                arch = self.config.targetArch
+                arch = self.machine.arch
                 if arch in VAR_ENV_PER_ARTIFACT[artifact]:
                     ret.update(VAR_ENV_PER_ARTIFACT[artifact][arch])
 
         return ret
 
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        bits = '64' if self.machine.arch == 'x86_64' else '32'
+        if self.machine.distribId in ('Redhat', 'Fedora',):
+            return f'/usr/share/mingw/toolchain-mingw{bits}.{builder}'
+
+        if self.machine.distribId in ('Ubuntu', 'Debian',):
+            return str(CROSS_FILE_DIR / f'debian-mingw{bits}.{builder}')
+
+        return None
+
+
+EMSDK_DEFAULT_VERSION = '6.0.11'
+
+class EmscriptenToolChain(IToolChain):
+    ''' Toolchain with emscripten (WebAssembly), using the emsdk pointed by $EMSDK or an emsdk
+        installed in the tools directory
+
+        options (in the [emscripten] section):
+            * version: the emsdk version to install when $EMSDK is not set
+            * pthreads: compile everything with -pthread (on by default, needed for shared memory)
+    '''
+
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'emscripten', config, machine)
+
+        # emsdk is downloaded by emsdk itself, it only needs these on the host
+        emsdkDeps = {
+            'Ubuntu|Debian': ['git', 'python3', 'xz-utils', 'tar'],
+            'Fedora|Redhat': ['git', 'python3', 'xz', 'tar'],
+        }
+        crossDeps = {}
+        for k, v in emsdkDeps.items():
+            for distrib in k.split('|'):
+                crossDeps[f'{distrib}->emscripten@wasm32'] = v
+
+        self.artifactRequires = {
+            'c': crossDeps,
+            'c++': crossDeps,
+        }
+        self.emsdkDir = None
+        self.extraEnvMap = None
+
+    def _getOption(self, name: str, default):
+        return self.config.context['getOption'](f'emscripten.{name}', default)
+
+    def _installEmsdk(self, emsdkDir: pathlib.Path, version: str) -> bool:
+        versionMarker = emsdkDir / 'accendino.version'
+        if os.path.exists(versionMarker):
+            with open(versionMarker, 'rt', encoding='utf8') as f:
+                if f.read().strip() == version:
+                    logging.debug(f'emsdk {version} already installed in {emsdkDir}')
+                    return True
+
+        if not os.path.exists(emsdkDir / 'emsdk'):
+            os.makedirs(emsdkDir.parent, exist_ok=True)
+            cmds = [['git', 'clone', 'https://github.com/emscripten-core/emsdk.git', str(emsdkDir)]]
+        else:
+            cmds = [['git', '-C', str(emsdkDir), 'pull']]
+
+        cmds += [
+            [str(emsdkDir / 'emsdk'), 'install', version],
+            [str(emsdkDir / 'emsdk'), 'activate', version],
+        ]
+
+        logging.info(f' * installing emsdk {version} in {emsdkDir}')
+        for cmd in cmds:
+            logging.debug(f'running {" ".join(cmd)}')
+            if subprocess.run(cmd, cwd=emsdkDir.parent, check=False).returncode != 0:
+                logging.error(f'error running {" ".join(cmd)}')
+                return False
+
+        with open(versionMarker, 'wt', encoding='utf8') as f:
+            f.write(version)
+        return True
+
+    def activate(self) -> bool:
+        emsdk = os.environ.get('EMSDK', None)
+        if emsdk:
+            logging.debug(f' * using emsdk from $EMSDK={emsdk}')
+            self.emsdkDir = pathlib.Path(emsdk)
+        else:
+            self.emsdkDir = pathlib.Path(self.config.toolsDir) / 'emsdk'
+            if not self._installEmsdk(self.emsdkDir, self._getOption('version', EMSDK_DEFAULT_VERSION)):
+                return False
+
+        # source emsdk_env.sh once to catch the environment it sets (PATH, EMSDK, EMSDK_NODE, ...). It is sourced
+        # from the emsdk directory as it can't find its own location in a plain POSIX sh. The dumps are NUL
+        # separated as values may contain new lines or '='
+        script = f'env -0; printf "\\0"; cd "{self.emsdkDir}" && . ./emsdk_env.sh >/dev/null 2>&1; env -0'
+        p = subprocess.run(['sh', '-c', script], stdout=subprocess.PIPE, encoding='utf-8', check=False)
+        if p.returncode != 0:
+            logging.error(f'error retrieving emsdk environment variables, errorCode={p.returncode}')
+            return False
+
+        before, after = p.stdout.split('\0\0', 1)
+        envBefore = dict(item.split('=', 1) for item in before.split('\0') if '=' in item)
+        envAfter = dict(item.split('=', 1) for item in after.split('\0') if '=' in item)
+        self.extraEnvMap = {k: v for k, v in envAfter.items()
+                            if envBefore.get(k) != v and k not in ('_', 'PWD', 'OLDPWD')}
+        if 'EMSDK' not in self.extraEnvMap and not emsdk:
+            logging.error(f'{self.emsdkDir / "emsdk_env.sh"} did not set EMSDK')
+            return False
+        self.extraEnvMap['EMSDK'] = str(self.emsdkDir)
+
+        sysrootPkgConfig = self.emsdkDir / 'upstream' / 'emscripten' / 'cache' / 'sysroot' / 'lib' / 'pkgconfig'
+        self.extraEnvMap['PKG_CONFIG_LIBDIR'] = sysrootPkgConfig.as_posix()
+
+        if self._getOption('pthreads', True):
+            # with shared memory every object has to be compiled with -pthread
+            for k in ('CFLAGS', 'CXXFLAGS', 'LDFLAGS'):
+                self.extraEnvMap[k] = (os.environ.get(k, '') + ' -pthread').strip()
+        return True
+
+    def extraEnv(self, artifacts) -> T.Dict[str, str]:
+        ret = dict(self.extraEnvMap or {})
+        ret.update({'AR': 'emar', 'RANLIB': 'emranlib'})
+        for artifact in artifacts:
+            if artifact == 'c':
+                ret['CC'] = 'emcc'
+            elif artifact == 'c++':
+                ret['CXX'] = 'em++'
+        return ret
+
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        # these use the emsdk set up by activate(), whatever the host
+        return str(CROSS_FILE_DIR / f'emscripten.{builder}')
 
 
 class DefaultToolChain(IToolChain):
     ''' Toolchain that does some smart default depending '''
 
-    def __init__(self, config):
-        IToolChain.__init__(self, 'default', config)
+    def __init__(self, config, machine=None):
+        IToolChain.__init__(self, 'default', config, machine)
         self.testObjs = []
         self.selectedObj = None
 
-        if config.distribId == 'Windows':
-            self.testObjs.append(VsToolChain(config, 'msvc'))
-        elif config.distribId == 'Darwin':
+        if self.machine.distribId == 'Windows':
+            self.testObjs.append(VsToolChain(config, 'msvc', self.machine))
+        elif self.machine.distribId == 'Darwin':
             # macOS only ships clang: `gcc`/`cc` are just aliases for it, there is no
             # real gcc, so don't let GccToolChain win the autodetection there
-            self.testObjs.append(ClangToolChain(config))
+            self.testObjs.append(ClangToolChain(config, self.machine))
         else:
-            self.testObjs.append(GccToolChain(config))
-            self.testObjs.append(ClangToolChain(config))
+            self.testObjs.append(GccToolChain(config, self.machine))
+            self.testObjs.append(ClangToolChain(config, self.machine))
 
     def packagesCheck(self, packageManager: PackageManager, artifacts: T.List[str], doInstall: bool) -> bool:
         logging.debug(' * autodetecting with default toolchain manager')
@@ -355,6 +514,9 @@ class DefaultToolChain(IToolChain):
     def extraEnv(self, artifacts) -> T.Dict[str, str]:
         return self.selectedObj.extraEnv(artifacts)
 
+    def crossFile(self, builder: str) -> T.Optional[str]:
+        return self.selectedObj.crossFile(builder) if self.selectedObj else None
+
 
 
 TOOLCHAINS = {
@@ -363,17 +525,19 @@ TOOLCHAINS = {
     'clang': ClangToolChain,
     'vs': VsToolChain,
     'mingw': MingwToolChain,
+    'emscripten': EmscriptenToolChain,
     'none': IToolChain,
 }
 
-def getToolchain(name: str, config):
+def getToolchain(name: str, config, machine=None):
+    ''' returns the toolchain object for the given name, building for machine (the target machine by default) '''
     ret = None
     if name in TOOLCHAINS:
         ctor = TOOLCHAINS[name]
-        ret = ctor(config)
+        ret = ctor(config, machine=machine)
 
     elif name.startswith('vs/'):
         flavor = name[3:]
-        ret = VsToolChain(config, flavor)
+        ret = VsToolChain(config, flavor, machine)
 
     return ret

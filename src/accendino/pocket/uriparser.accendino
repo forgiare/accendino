@@ -22,7 +22,7 @@ if targetDistribId == 'mingw':
     else:
         uriparser_fromSources = True
 
-if targetDistribId in ('Windows', 'Darwin',):
+if targetDistribId in ('Windows', 'Darwin', 'emscripten',):
     uriparser_fromSources = True
 
 if uriparser_fromSources:

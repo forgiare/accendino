@@ -1,0 +1,2 @@
+option('build_prefix', type: 'string', description: 'prefix of the build machine artifacts')
+option('target_prefix', type: 'string', description: 'prefix of the target artifacts')

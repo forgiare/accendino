@@ -24,10 +24,19 @@ if targetDistribId == 'mingw':
     else:
         opus_fromSources = True
 
-elif targetDistribId in ('Darwin', 'Windows', ):
+elif targetDistribId in ('Darwin', 'Windows', 'emscripten', ):
     opus_fromSources = True
 
-if opus_fromSources:
+if opus_fromSources and targetDistribId == 'emscripten':
+    # static only, and the x86/arm intrinsics detection makes no sense in WebAssembly
+    ARTIFACTS += [
+        CMakeBuildArtifact('opus', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
+            ['-DOPUS_BUILD_SHARED_LIBRARY=OFF', '-DOPUS_DISABLE_INTRINSICS=ON', '-DOPUS_BUILD_PROGRAMS=OFF',
+             '-DOPUS_BUILD_TESTING=OFF'],
+            provides=['opus-artifact']
+        ),
+    ]
+elif opus_fromSources:
     ARTIFACTS += [
         CMakeBuildArtifact('opus', [], GitSource('https://gitlab.xiph.org/xiph/opus.git', 'v1.5.2'),
             ['-DOPUS_BUILD_SHARED_LIBRARY=ON'],

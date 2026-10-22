@@ -13,14 +13,19 @@ cjson_pkgDeps = {
 }
 cjson_fromSources = getOption('cjson.fromSources', False)
 
-if targetDistribId in ('mingw', 'Windows', 'Darwin',):
+if targetDistribId in ('mingw', 'Windows', 'Darwin', 'emscripten',):
     cjson_fromSources = True
 
 if cjson_fromSources:
+    cjson_opts = ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF']
+    if targetDistribId == 'emscripten':
+        # cJSON's own flags build with -std=c89 -Werror, which fails on the isinf() macro of emscripten's libc
+        cjson_opts.append('-DENABLE_CUSTOM_COMPILER_FLAGS=OFF')
+
     ARTIFACTS += [
         CMakeBuildArtifact('cjson', [],
             stdGitSourceFromOptions('cjson', 'https://github.com/DaveGamble/cJSON.git', 'v1.7.18'),
-            ['-DENABLE_CJSON_TEST=OFF', '-DBUILD_SHARED_AND_STATIC_LIBS=OFF'],
+            cjson_opts,
             provides=['cjson-artifact']
         ),
     ]

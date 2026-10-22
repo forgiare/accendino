@@ -1,0 +1,44 @@
+# End to end test of the tools built for the build machine when cross compiling: protoc runs during the build of
+# crosstools, crosstools-meson and crosstools-c, so it comes from the native:protobuf artifact while libprotobuf is built
+# for the target. Same for protoc-gen-c and libprotobuf-c with crosstools-c, and wayland-scanner with crosstools-wayland.
+#
+#   accendino --targetDistrib=mingw64 crosstools.accendino
+#
+# protobuf and protobuf-c are built from sources for mingw, so they're also built from sources for the build machine,
+# and the tools and the libraries have the same versions.
+#
+include('protobuf.accendino')
+include('protobuf-c.accendino')
+include('wayland.accendino')
+
+crosstools_cmakeLists = findAsset('src', 'CMakeLists.txt')
+
+ARTIFACTS += [
+    CMakeBuildArtifact('crosstools', ['protobuf-artifact'],
+        LocalSource(crosstools_cmakeLists[:-len('/CMakeLists.txt')], True),
+        toolDeps=['protobuf-artifact'],
+        toolchainArtifacts='c,c++',
+    ),
+
+    # meson looks up the dependencies of the build machine with its native file
+    MesonBuildArtifact('crosstools-meson', ['protobuf-artifact'],
+        LocalSource(findAsset('src-meson', 'meson.build')[:-len('/meson.build')], True),
+        toolDeps=['protobuf-artifact'],
+        mesonOpts=['-Dbuild_prefix={build_prefix_posix}', '-Dtarget_prefix={prefix_posix}'],
+    ),
+
+    # protoc-gen-c comes from the native:protobuf-c artifact, the target protobuf-c is only the runtime library
+    MesonBuildArtifact('crosstools-c', ['protobuf-c-artifact'],
+        LocalSource(findAsset('src-c', 'meson.build')[:-len('/meson.build')], True),
+        toolDeps=['protobuf-artifact', 'protobuf-c-artifact'],
+    ),
+
+    # wayland-scanner comes from the native:wayland artifact, from the build machine packages by default. With
+    # [native:wayland] fromSources=on only wayland-scanner is built
+    MesonBuildArtifact('crosstools-wayland', [],
+        LocalSource(findAsset('src-wayland', 'meson.build')[:-len('/meson.build')], True),
+        toolDeps=['wayland-artifact'],
+    ),
+]
+
+DEFAULT_TARGETS = 'crosstools,crosstools-meson,crosstools-c,crosstools-wayland'

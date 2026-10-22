@@ -168,12 +168,19 @@ def mergePkgDeps(d1: T.Dict[str, T.Any], d2: T.Dict[str, T.Any]) -> T.Dict[str, 
     return ret
 
 
-def doMingwCrossDeps(distribs: T.List[str], deps: T.List[T.Any], target: T.Dict[str, T.Any]):
+CROSS_TARGETS = (('mingw', 'x86_64'), ('mingw', 'i686'), ('emscripten', 'wasm32'))
+
+def doCrossDeps(distribs: T.List[str], deps: T.List[T.Any], target: T.Dict[str, T.Any]):
+    ''' adds deps to the package requirements of all the cross targets (mingw, emscripten) of the given
+        host distribs '''
     for d in distribs:
-        for arch in ('x86_64', 'i686',):
-            key = f'{d}->mingw@{arch}'
+        for targetDistrib, arch in CROSS_TARGETS:
+            key = f'{d}->{targetDistrib}@{arch}'
             baseV = target.get(key, [])
             target[key] = baseV + deps[:]
+
+# kept for accendino files that may use the old name
+doMingwCrossDeps = doCrossDeps
 
 
 class NativePath:
@@ -241,28 +248,76 @@ def is_exact_instance(obj, klass):
     s2 = klass.__name__
     return s1 == s2
 
-def getArchLibDir(distribId: str, archId: str) -> str:
-    if distribId == 'mingw':
-        return None
-
+def getArchLibDir(distribId: str, archId: str) -> T.Optional[str]:
+    ''' returns the multiarch library sub directory (x86_64-linux-gnu, ...) of Linux distributions, None for others '''
     OS_KEYS = {
         'Ubuntu': '-linux-gnu',
         'Debian': '-linux-gnu',
         'Fedora': '-linux-gnu',
         'Redhat': '-linux-gnu'
     }
+    osKey = OS_KEYS.get(distribId, None)
+    if not osKey:
+        return None
 
-    osKey = OS_KEYS.get(distribId, distribId)
     ARCH_KEYS = {
         'amd64': 'x86_64',
         'x86_64': 'x86_64',
+        'i686': 'i386',
+        'arm64': 'aarch64',
     }
 
     archKey = ARCH_KEYS.get(archId, None)
     if not archKey:
-        logging.error("arch {0} not handled yet", archId)
+        logging.warning(f"arch {archId} not handled yet for library sub directories")
+        return None
     return archKey + osKey
 
+
+def homebrewPrefix() -> T.Optional[str]:
+    ''' returns the prefix of Homebrew on macOS (/opt/homebrew on Apple Silicon, /usr/local on Intel), None if
+        it's not installed '''
+    prefix = os.environ.get('HOMEBREW_PREFIX')
+    if prefix:
+        return prefix
+
+    for prefix in ('/opt/homebrew', '/usr/local'):
+        if os.path.exists(os.path.join(prefix, 'bin', 'brew')):
+            return prefix
+    return None
+
+
+def pkgConfigDirs(prefix: T.Optional[str], libdir: str, targetDistrib: str, arch: str, extraPath: T.Optional[str],
+                  crossCompilation: bool = False) -> T.List[str]:
+    ''' returns the pkg-config search directories for a machine, with the ones of prefix if given, and
+        the paths of extraPath (a PKG_CONFIG_PATH like string) at the end
+    '''
+    ret = []
+    if prefix:
+        ret += [f'{prefix}/{libdir}/pkgconfig', f'{prefix}/share/pkgconfig']
+
+    archLibDir = getArchLibDir(targetDistrib, arch)
+    if archLibDir:
+        if prefix:
+            ret.append(f'{prefix}/{libdir}/{archLibDir}/pkgconfig')
+        ret.append(f'/usr/lib/{archLibDir}/pkgconfig')
+
+    # host .pc files must never satisfy a WebAssembly build, nor a macOS build for the other architecture (Homebrew only
+    # has the local one)
+    if targetDistrib == 'emscripten' or (targetDistrib == 'Darwin' and crossCompilation):
+        return ret
+
+    if targetDistrib == 'Darwin':
+        # PKG_CONFIG_LIBDIR replaces the default search path of Homebrew's pkg-config
+        brewPrefix = homebrewPrefix()
+        if brewPrefix:
+            ret += [f'{brewPrefix}/lib/pkgconfig', f'{brewPrefix}/share/pkgconfig']
+
+    ret.append('/usr/share/pkgconfig')
+    if extraPath:
+        ret += [p for p in extraPath.split(':') if p]
+
+    return ret
 
 def envForDepotTools(env: T.Dict[str, str] = None):
     ''' cleanups PYTHONPATH for gclient, fetch and gn otherwise we have conflicts between

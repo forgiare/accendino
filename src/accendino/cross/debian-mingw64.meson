@@ -5,6 +5,8 @@ ar = 'x86_64-w64-mingw32-ar'
 windres = 'x86_64-w64-mingw32-windres'
 strip = 'x86_64-w64-mingw32-strip'
 exe_wrapper = 'wine64'
+# accendino's PKG_CONFIG_LIBDIR only lists the target directories
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'windows'
