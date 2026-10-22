@@ -317,6 +317,38 @@ Specific build artifacts objects and their signatures:
     a build artifact that relies on `autotools` / `make` to build
 * `MesonBuildArtifact(name: str, deps, srcObj, mesonOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that relies on `meson` to build
 * `CustomCommandBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_src_cmds=[], prepare_cmds=[], build_target='all', install_target='install', builder='make')`: build artifact with the provided `builder` (can be `make`, `makeMsys2`, `nmake` or `ninja`) with specified commands to prepare the source and build directory
+* `QtInstaller(name: str, deps=[], flavor=6, version='latest', modules=[], provides=[], pkgs={}, aqtArch=None, aqtVersion='3.3.0')`:
+    Qt, see [Qt](#qt)
+
+### Qt
+
+`QtInstaller()` returns an artifact named `name` that gives Qt 5 or 6 (`flavor`) to the artifacts depending on it:
+
+```python
+QtInstaller('qt6', flavor=6, version='latest', modules=['qtwebsockets', 'qtmultimedia'])
+```
+
+* `modules` are named like Qt repositories (`qtwebsockets`, `qtmultimedia`, `qt5compat`...), `qtbase` is always
+  there; `qtbase-private` asks for the private headers of qtbase with platform packages;
+* with `version='system'` it's a `DepsBuildArtifact` requiring the platform packages of these modules (Debian/Ubuntu,
+  Fedora/Redhat, Arch and Homebrew names), `pkgs` adds other ones;
+* otherwise Qt is installed with [aqtinstall](https://github.com/miurahr/aqtinstall) (`aqtVersion`, in a venv of the
+  tools directory) in the `qt/<host>-<target>-<arch>` directory of the tools directory. `version` is `latest` (the
+  latest `<flavor>` release), `<major>.<minor>` (its latest release) or a precise version (`6.8.3`). `latest` and
+  `<major>.<minor>` are resolved once and kept until `--refreshSources`, changing the version or the modules
+  reinstalls Qt and rebuilds what depends on it. With aqt, `qtdeclarative`, `qtsvg`, `qttools`, `qttranslations`
+  and `qtwayland` come with the base installation. The aqt architecture is chosen for the target and the toolchain
+  (`linux_gcc_64`, `win64_msvc2022_64`, `win64_mingw` when cross compiling with mingw, `clang_64` for macOS, ...) or
+  given with `aqtArch`.
+
+The artifacts depending (directly or not) on an aqt installed Qt get its directory in `CMAKE_PREFIX_PATH` and
+`PKG_CONFIG_LIBDIR`, and its `bin` directory in `PATH`. When cross compiling, Qt 6 also needs its tools for the build
+machine: the target artifact has itself as tool dependency, the `native:<name>` installation is given in `QT_HOST_PATH` (read
+by Qt's CMake files) and its `bin` directory in `PATH`. aqt doesn't provide Qt for emscripten nor for Linux cross
+compilation.
+
+Programs installed in the prefix don't have an RPATH to the aqt Qt: run them with `LD_LIBRARY_PATH` (Linux), or use
+Qt's deployment tools.
 
 
 ## Tools for the build machine

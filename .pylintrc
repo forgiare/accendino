@@ -1,5 +1,6 @@
 [FORMAT]
 max-line-length=150
+max-module-lines=2000
 ignore-long-lines=^\s*(# )?<?https?://\S+>?$
 single-line-if-stmt=no
 single-line-class-stmt=no

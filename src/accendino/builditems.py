@@ -118,6 +118,12 @@ class DepsBuildArtifact:
     def build(self, _config) -> bool:
         return True
 
+    def exportedEnv(self, _config) -> T.Dict[str, str]:
+        ''' environment variables given to the artifacts depending on this one (directly or not), PATH like variables
+            (PATH, CMAKE_PREFIX_PATH, PKG_CONFIG_LIBDIR, ...) are prepended to their value
+        '''
+        return {}
+
     def forceRebuild(self) -> None:
         for f in (self.prepareStateFile, self.builtFile):
             if f and os.path.exists(f):
@@ -221,7 +227,7 @@ class BuildArtifact(DepsBuildArtifact):
             if not isinstance(v, str):
                 v = str(v)
 
-            if k == 'PATH':
+            if k in ('PATH', 'CMAKE_PREFIX_PATH',):
                 self._updatePATHlike(config, base, k, v.split(os.pathsep), sep=os.pathsep)
             elif k in ('PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR',):
                 self._updatePATHlike(config, base, k, v.split(':'))
@@ -284,6 +290,10 @@ class BuildArtifact(DepsBuildArtifact):
 
         self._updateEnvMap(config, r, xx)
 
+        for depEnv in self._depsExportedEnv(config):
+            self._updateEnvMap(config, r, depEnv)
+            xkeys += depEnv.keys()
+
         # finally add the user provided extra env
         self._updateEnvMap(config, r, extra)
 
@@ -295,6 +305,23 @@ class BuildArtifact(DepsBuildArtifact):
             fileDumperFn(r, xkeys)
 
         return (r, xkeys)
+
+    def _depsExportedEnv(self, config) -> T.List[T.Dict[str, str]]:
+        ''' returns the environments exported by the dependencies of this artifact, and their dependencies '''
+        ret = []
+        seen = set()
+        todo = list(self.deps)
+        while todo:
+            item = config.getBuildItem(todo.pop(0))
+            if not item or item.name in seen:
+                continue
+
+            seen.add(item.name)
+            todo += item.deps
+            env = item.exportedEnv(config)
+            if env:
+                ret.append(env)
+        return ret
 
     def _expandConfigInString(self, item: str, config) -> str:
         if not isinstance(item, str):

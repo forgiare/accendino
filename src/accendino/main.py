@@ -17,7 +17,8 @@ from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Sourc
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath, RunInShell, mergePkgDeps, is_exact_instance
 from accendino.toolchain import getToolchain, CROSS_FILE_DIR
-from accendino.machine import Machine
+from accendino.machine import Machine, NATIVE_PREFIX
+from accendino.qtinstaller import QtInstaller
 
 
 
@@ -121,8 +122,6 @@ def detectPlatform() -> None:
 BUILD_TYPES = ('release', 'debug',)
 ARCHS = ('i686', 'x86_64', 'arm64', 'wasm32')
 
-# prefix of the names of the artifacts built for the build machine when cross compiling
-NATIVE_PREFIX = 'native:'
 
 
 class Evaluation:
@@ -318,6 +317,7 @@ class AccendinoConfig:
             'AutogenBuildArtifact': AutogenBuildArtifact,
             'MesonBuildArtifact': MesonBuildArtifact,
             'CustomCommandBuildArtifact': CustomCommandBuildArtifact,
+            'QtInstaller': QtInstaller,
             'BuildArtifact': BuildArtifact,
             'include': includeFn,
             'findAsset': findAssetFn,
