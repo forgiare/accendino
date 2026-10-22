@@ -54,6 +54,10 @@ Everything lives under `src/accendino/`:
   `builtFile` mtimes. `--refreshSources` drops these markers when `GitSource.checkout()` detects the
   upstream actually moved; `--refresh` (`AccendinoConfig.refresh`) unconditionally drops them for the
   explicitly requested targets via `BuildArtifact.forceRebuild()`.
+  An artifact can give environment variables to the ones depending on it with `exportedEnv()`.
+  **`qtinstaller.py`** has `QtInstaller()`: Qt from platform
+  packages, or installed by aqtinstall in the tools directory (`AqtQtArtifact`, exporting `CMAKE_PREFIX_PATH`,
+  `QT_HOST_PATH`...).
 - **`sources.py`** — `Source` subclasses (`GitSource`, `LocalSource`, `RemoteArchiveSource`) that know
   how to populate an artifact's source directory and report whether they actually changed it
   (`self.refreshed`), which feeds the rebuild-cascade logic above.
