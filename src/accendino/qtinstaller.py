@@ -127,6 +127,8 @@ class AqtQtArtifact(BuildArtifact):
         self.host = None
         self.target = None
         self.outputDir = None
+        self.installMarker = None
+        self.forcedInstall = False
 
     def _aqtHostAndTarget(self) -> T.Tuple[T.Optional[str], T.Optional[str]]:
         ''' returns the aqt host and target for the machine of this artifact '''
@@ -190,14 +192,16 @@ class AqtQtArtifact(BuildArtifact):
         venvDir = config.toolsDir / f'aqtinstall-{self.aqtVersion}'
         binDir = venvDir / ('Scripts' if sys.platform == 'win32' else 'bin')
         self.aqtPath = binDir / ('aqt.exe' if sys.platform == 'win32' else 'aqt')
-        if os.path.exists(self.aqtPath):
-            return True
+        if not os.path.exists(self.aqtPath):
+            cmds = [
+                ([sys.executable, '-m', 'venv', venvDir], '.', 'creating venv for aqtinstall'),
+                ([binDir / 'pip', 'install', f'aqtinstall=={self.aqtVersion}'], '.', f'installing aqtinstall {self.aqtVersion}'),
+            ]
+            if not self.runCommands(cmds, os.environ.copy(), config):
+                return False
 
-        cmds = [
-            ([sys.executable, '-m', 'venv', venvDir], '.', 'creating venv for aqtinstall'),
-            ([binDir / 'pip', 'install', f'aqtinstall=={self.aqtVersion}'], '.', f'installing aqtinstall {self.aqtVersion}'),
-        ]
-        return self.runCommands(cmds, os.environ.copy(), config)
+        config.registerTool(f'aqtinstall-{self.aqtVersion}', self.aqtVersion)
+        return True
 
     def checkout(self, config) -> bool:
         ''' resolves the Qt version and the architecture to install. They are resolved with aqt once and kept
@@ -246,6 +250,34 @@ class AqtQtArtifact(BuildArtifact):
         self.prepare_cmds = []
         self.prepareDumpCmds = [(installCmd, '.', 'installing Qt')]
         self.build_cmds = [([str(self.aqtPath)] + installCmd[1:], '{builddir}', f'installing Qt {self.resolvedVersion}')]
+        self.installMarker = ' '.join(installCmd[1:])
+
+        qtPath = f'qt/{self.host}-{self.target}-{self.aqtArch}/{self.resolvedVersion}'
+        config.registerTool(qtPath, ' '.join([self.resolvedVersion, self.aqtArch] + self.modules))
+        return True
+
+    def _installMarkerFile(self) -> str:
+        return self.outputDir / self.resolvedVersion / 'accendino.installed'
+
+    def forceRebuild(self) -> None:
+        BuildArtifact.forceRebuild(self)
+        self.forcedInstall = True
+
+    def build(self, config) -> bool:
+        # Qt may already be in the tools directory (restored from a CI cache for instance) when this artifact
+        # has never been built
+        markerFile = self._installMarkerFile()
+        if not os.path.isfile(self.builtFile) and not self.forcedInstall and os.path.exists(markerFile):
+            with open(markerFile, 'rt', encoding='utf8') as f:
+                if f.read().strip() == self.installMarker and self.qtDir():
+                    logging.debug(f'{self.name}: Qt {self.resolvedVersion} already installed in {self.outputDir}')
+                    return self.createBuiltFile()
+
+        if not BuildArtifact.build(self, config):
+            return False
+
+        with open(markerFile, 'wt', encoding='utf8') as f:
+            f.write(self.installMarker + '\n')
         return True
 
     def qtDir(self) -> T.Optional[str]:

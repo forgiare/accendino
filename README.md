@@ -1,3 +1,5 @@
+<img src="docs/accendino.png" alt="Accendino logo" align="right" height="96">
+
 # Accendino, a complex project builder
 
 ## About

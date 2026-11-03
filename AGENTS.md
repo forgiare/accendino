@@ -58,6 +58,9 @@ Everything lives under `src/accendino/`:
   **`qtinstaller.py`** has `QtInstaller()`: Qt from platform
   packages, or installed by aqtinstall in the tools directory (`AqtQtArtifact`, exporting `CMAKE_PREFIX_PATH`,
   `QT_HOST_PATH`...).
+  `--ccache` wraps the compilers with ccache per builder (`BuildArtifact.ccacheMode`). Tools installed in the tools
+  directory are registered with `AccendinoConfig.registerTool()`, which writes `tools/accendino-tools.txt` (a CI cache
+  key); `--pruneTools` removes what wasn't registered.
 - **`sources.py`** — `Source` subclasses (`GitSource`, `LocalSource`, `RemoteArchiveSource`) that know
   how to populate an artifact's source directory and report whether they actually changed it
   (`self.refreshed`), which feeds the rebuild-cascade logic above.

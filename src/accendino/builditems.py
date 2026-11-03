@@ -138,6 +138,10 @@ WIN_BUILD_SCRIPT = 'build.ps1'
 class BuildArtifact(DepsBuildArtifact):
     ''' general build artifact '''
 
+    # how the builds go through ccache with --ccache: 'launcher' (the builder sets it up), 'cc' (CC and CXX are prefixed
+    # with ccache), 'env' (just the ccache settings, the build commands use ccache if they want), None (no ccache)
+    ccacheMode = None
+
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[],
                  toolchainArtifacts='c', skipToolchainEnv=False, toolDeps=[], buildMachineOnly=False) -> None:
         '''
@@ -290,6 +294,11 @@ class BuildArtifact(DepsBuildArtifact):
 
         self._updateEnvMap(config, r, xx)
 
+        ccacheEnv = self._ccacheEnv(config, r)
+        if ccacheEnv:
+            self._updateEnvMap(config, r, ccacheEnv)
+            xkeys += ccacheEnv.keys()
+
         for depEnv in self._depsExportedEnv(config):
             self._updateEnvMap(config, r, depEnv)
             xkeys += depEnv.keys()
@@ -305,6 +314,21 @@ class BuildArtifact(DepsBuildArtifact):
             fileDumperFn(r, xkeys)
 
         return (r, xkeys)
+
+    def _ccacheEnv(self, config, env: T.Dict[str, str]) -> T.Dict[str, str]:
+        ''' returns the environment variables to compile through ccache, given the environment computed so far '''
+        if not config.ccache or not self.ccacheMode:
+            return {}
+
+        ret = dict(config.ccacheEnv)
+        if self.machine.targetDistrib == 'emscripten':
+            # emcc runs clang through the wrapper, ccache knows clang better than emcc
+            ret['EM_COMPILER_WRAPPER'] = 'ccache'
+        elif self.ccacheMode == 'cc':
+            for k in ('CC', 'CXX'):
+                if env.get(k) and not env[k].startswith('ccache '):
+                    ret[k] = f'ccache {env[k]}'
+        return ret
 
     def _depsExportedEnv(self, config) -> T.List[T.Dict[str, str]]:
         ''' returns the environments exported by the dependencies of this artifact, and their dependencies '''
@@ -636,6 +660,8 @@ class BuildArtifact(DepsBuildArtifact):
 class CustomCommandBuildArtifact(BuildArtifact):
     ''' an artifact that is configured with a special command '''
 
+    ccacheMode = 'env'
+
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides: T.List[str] = [], pkgs={}, prepare_src_cmds=[], prepare_cmds=[],
                  builder='make', build_target='all', install_target='install', toolchainArtifacts='c', skipToolchainEnv=False,
                  toolDeps=[], buildMachineOnly=False) -> None:
@@ -691,6 +717,8 @@ class CustomCommandBuildArtifact(BuildArtifact):
 class CMakeBuildArtifact(BuildArtifact):
     ''' cmake based build item '''
 
+    ccacheMode = 'launcher'
+
     def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={},
                  toolchainArtifacts='c', cmakeProjectDir='{srcdir}', toolDeps=[], buildMachineOnly=False) -> None:
         '''
@@ -739,6 +767,9 @@ class CMakeBuildArtifact(BuildArtifact):
                '-S', self.cmakeProjectDir,
                '-B', '{builddir}'
         ]
+
+        if config.ccache and self.machine.targetDistrib != 'emscripten':
+            cmake_cmd += ['-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
 
         cmake_cmd += self.cmakeOpts
 
@@ -827,6 +858,8 @@ class QMakeBuildArtifact(BuildArtifact):
 class AutogenBuildArtifact(BuildArtifact):
     ''' autotools/autogen.sh + make based build item '''
 
+    ccacheMode = 'cc'
+
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, autogenArgs=[], noconfigure=False,
                  isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}', toolchainArtifacts='c',
                  toolDeps=[], buildMachineOnly=False) -> None:
@@ -892,6 +925,8 @@ class AutogenBuildArtifact(BuildArtifact):
 class MesonBuildArtifact(BuildArtifact):
     ''' meson + ninja based build item '''
 
+    ccacheMode = 'cc'
+
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True,
                  toolchainArtifacts='c', mesonVersion: str = 'system', toolDeps=[], buildMachineOnly=False) -> None:
         '''
@@ -944,18 +979,25 @@ class MesonBuildArtifact(BuildArtifact):
         self.mesonPath = mesonRootDir / 'bin' / 'meson'
         if os.path.exists(mesonRootDir) and os.path.exists(self.mesonPath):
             logging.debug(f"meson {self.mesonVersion} already installed")
-            return True
+        else:
+            mesonVersionString = 'meson'
+            if self.mesonVersion != 'latest':
+                mesonVersionString = f'meson=={self.mesonVersion}'
 
-        mesonVersionString = 'meson'
-        if self.mesonVersion != 'latest':
-            mesonVersionString = f'meson=={self.mesonVersion}'
+            env = os.environ.copy()
+            cmds = [
+                (['python', '-m', 'venv', mesonRootDir], '.', f'creating venv for {mesonVersionString}'),
+                ([mesonRootDir / 'bin' / 'pip', 'install', mesonVersionString], '.', f'installing {mesonVersionString}'),
+            ]
+            if not self.runCommands(cmds, env, config):
+                return False
 
-        env = os.environ.copy()
-        cmds = [
-            (['python', '-m', 'venv', mesonRootDir], '.', f'creating venv for {mesonVersionString}'),
-            ([mesonRootDir / 'bin' / 'pip', 'install', mesonVersionString], '.', f'installing {mesonVersionString}'),
-        ]
-        return self.runCommands(cmds, env, config)
+        version = self.mesonVersion
+        if version == 'latest':
+            p = subprocess.run([str(self.mesonPath), '--version'], stdout=subprocess.PIPE, text=True, check=False)
+            version = p.stdout.strip() or version
+        config.registerTool(f'meson-{self.mesonVersion}', version)
+        return True
 
     def _writeNativeFile(self, config) -> str:
         ''' writes the meson native file used when cross compiling, so that dependency(..., native: true) looks in the
@@ -1025,3 +1067,4 @@ class MesonBuildArtifact(BuildArtifact):
         ]
 
         return BuildArtifact.prepare(self, config)
+

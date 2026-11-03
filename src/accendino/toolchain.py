@@ -430,8 +430,10 @@ class EmscriptenToolChain(IToolChain):
             self.emsdkDir = pathlib.Path(emsdk)
         else:
             self.emsdkDir = pathlib.Path(self.config.toolsDir) / 'emsdk'
-            if not self._installEmsdk(self.emsdkDir, self._getOption('version', EMSDK_DEFAULT_VERSION)):
+            version = self._getOption('version', EMSDK_DEFAULT_VERSION)
+            if not self._installEmsdk(self.emsdkDir, version):
                 return False
+            self.config.registerTool('emsdk', version)
 
         # source emsdk_env.sh once to catch the environment it sets (PATH, EMSDK, EMSDK_NODE, ...). It is sourced
         # from the emsdk directory as it can't find its own location in a plain POSIX sh. The dumps are NUL
