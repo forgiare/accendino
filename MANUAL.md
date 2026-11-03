@@ -320,6 +320,14 @@ Specific build artifacts objects and their signatures:
     a build artifact that relies on `autotools` / `make` to build
 * `MesonBuildArtifact(name: str, deps, srcObj, mesonOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that relies on `meson` to build
 * `CustomCommandBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_src_cmds=[], prepare_cmds=[], build_target='all', install_target='install', builder='make')`: build artifact with the provided `builder` (can be `make`, `makeMsys2`, `nmake` or `ninja`) with specified commands to prepare the source and build directory
+* `CargoBuildArtifact(name: str, deps, srcObj, cargoOpts=[], features=[], noDefaultFeatures=False, capi=False, locked=False, parallelJobs=True, extraEnv={}, provides=[], pkgs={}, cargoProjectDir='{srcdir}', rustVersion='system')`:
+    a rust crate built with `cargo`. By default its binaries are installed in `{prefix}/bin` with `cargo install`, with `capi=True`
+    the crate is a library with a C API built and installed (libraries, headers and pkg-config files) with [cargo-c](https://github.com/lu-zero/cargo-c).
+    `cargoProjectDir` is the directory of the `Cargo.toml` (a workspace member for instance), `features` and `noDefaultFeatures`
+    select the cargo features, `locked` builds with the versions of `Cargo.lock` and `cargoOpts` are extra arguments for `cargo install` / `cargo cinstall`.
+    With `rustVersion='system'` rust comes from the platform packages, otherwise it is a rustup toolchain (`stable`, `1.85.0`, ...)
+    installed with rustup in the tools directory (`tools/rust`). When cross compiling the crate is built for the rust target of the
+    target machine (`x86_64-pc-windows-gnu`, `wasm32-unknown-emscripten`, ...), added to the rustup toolchain when needed
 * `QtInstaller(name: str, deps=[], flavor=6, version='latest', modules=[], provides=[], pkgs={}, aqtArch=None, aqtVersion='3.3.0')`:
     Qt, see [Qt](#qt)
 

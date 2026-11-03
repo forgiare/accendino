@@ -12,7 +12,7 @@ from zenlog import log as logging
 import accendino
 
 from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuildArtifact, DepsBuildArtifact, \
-    MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact
+    MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact, CargoBuildArtifact
 from accendino.localdeps import getPkgManager
 from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Source
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
@@ -327,6 +327,7 @@ class AccendinoConfig:
             'AutogenBuildArtifact': AutogenBuildArtifact,
             'MesonBuildArtifact': MesonBuildArtifact,
             'CustomCommandBuildArtifact': CustomCommandBuildArtifact,
+            'CargoBuildArtifact': CargoBuildArtifact,
             'QtInstaller': QtInstaller,
             'BuildArtifact': BuildArtifact,
             'include': includeFn,

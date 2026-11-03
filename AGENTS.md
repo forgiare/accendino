@@ -47,7 +47,8 @@ Everything lives under `src/accendino/`:
   each artifact: `init()` → `checkout()` → `prepare()` → `build()`.
 - **`builditems.py`** — the artifact class hierarchy: `DepsBuildArtifact` (base, meta-only, no
   source/build) → `BuildArtifact` (generic prepare_cmds/build_cmds) → `CMakeBuildArtifact`,
-  `MesonBuildArtifact`, `QMakeBuildArtifact`, `AutogenBuildArtifact`, `CustomCommandBuildArtifact`.
+  `MesonBuildArtifact`, `QMakeBuildArtifact`, `AutogenBuildArtifact`, `CustomCommandBuildArtifact`,
+  `CargoBuildArtifact` (rust, `cargo install` or cargo-c, rust from packages or rustup in the tools directory).
   Build state is cached on disk per artifact via two marker files in the artifact's build dir:
   `accendino.prepared` (pickled `BuildStepDump` of env+commands, compared to detect drift) and
   `accendino.built`. `needsRebuildFromDepsUpdates()` cascades rebuilds to dependents by comparing
