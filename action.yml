@@ -1,6 +1,6 @@
 name: accendino build
 author: "David Fort"
-description: Builds targets of an accendino file, caching the tools directory and ccache between runs
+description: Builds targets of an accendino file, caching the tools directory, ccache and the platform packages between runs
 branding:
   icon: "zap"
   color: "orange"
@@ -25,6 +25,9 @@ inputs:
     default: 'true'
   ccache:
     description: compile through ccache and cache it (ignored on Windows)
+    default: 'true'
+  cache-packages:
+    description: cache the platform packages installed by accendino (only on Linux, with dpkg)
     default: 'true'
   cache-key:
     description: the cache key prefix, a hash of the build settings when empty
@@ -56,6 +59,17 @@ runs:
         echo "key=accendino-${{ runner.os }}-$key" >> "$GITHUB_OUTPUT"
         echo "ccache=${{ inputs.ccache == 'true' && runner.os != 'Windows' }}" >> "$GITHUB_OUTPUT"
 
+        packages=${{ inputs.cache-packages == 'true' && runner.os == 'Linux' }}
+        echo "packages=$packages" >> "$GITHUB_OUTPUT"
+        if [ "$packages" = true ]; then
+          # the cached packages depend on the system: the runner image, or the distribution in a container
+          image="${ImageOS:-}-${ImageVersion:-}"
+          if [ "$image" = "-" ]; then
+            image=$(. /etc/os-release && echo "$ID-$VERSION_ID")
+          fi
+          echo "packagesKey=accendino-${{ runner.os }}-$image-$key-packages-" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: install accendino
       shell: bash
       run: |
@@ -64,10 +78,20 @@ runs:
         "$venvBin/pip" install "${{ github.action_path }}" meson
         echo "$venvBin" >> "$GITHUB_PATH"
 
+    # with the packages cache accendino updates the index only when the packages can't be installed from the cache
     - name: update the package index
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && steps.setup.outputs.packages != 'true'
       shell: bash
       run: sudo apt-get update
+
+    - name: restore the packages cache
+      id: packages
+      if: steps.setup.outputs.packages == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/packages
+        key: ${{ steps.setup.outputs.packagesKey }}
+        restore-keys: ${{ steps.setup.outputs.packagesKey }}
 
     - name: restore the tools directory
       id: tools
@@ -93,6 +117,7 @@ runs:
         [ -n "${{ inputs.targets }}" ] && args+=(--targets="${{ inputs.targets }}")
         [ "${{ inputs.cache-tools }}" = true ] && args+=(--pruneTools)
         [ "${{ steps.setup.outputs.ccache }}" = true ] && args+=(--ccache)
+        [ "${{ steps.setup.outputs.packages }}" = true ] && args+=(--cachePackage="${{ steps.setup.outputs.projectDir }}/packages")
         accendino "${args[@]}" ${{ inputs.extra-args }} "${{ inputs.file }}"
         if [ "${{ steps.setup.outputs.ccache }}" = true ]; then
           CCACHE_DIR="${{ steps.setup.outputs.projectDir }}/ccache" ccache --show-stats
@@ -109,6 +134,19 @@ runs:
       with:
         path: ${{ steps.setup.outputs.projectDir }}/tools
         key: ${{ steps.setup.outputs.key }}-tools-${{ hashFiles(format('{0}/tools/accendino-tools.txt', steps.setup.outputs.projectDir)) }}
+
+    # saved with the hash of the manifests, only when the cached packages changed. Also when the build fails, the packages
+    # are installed before building
+    - name: save the packages cache
+      if: >-
+        always() && steps.setup.outputs.packages == 'true' &&
+        hashFiles(format('{0}/packages/*/accendino-packages.txt', steps.setup.outputs.projectDir)) != '' &&
+        steps.packages.outputs.cache-matched-key != format('{0}{1}', steps.setup.outputs.packagesKey,
+          hashFiles(format('{0}/packages/*/accendino-packages.txt', steps.setup.outputs.projectDir)))
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/packages
+        key: ${{ steps.setup.outputs.packagesKey }}${{ hashFiles(format('{0}/packages/*/accendino-packages.txt', steps.setup.outputs.projectDir)) }}
 
     # also saved when the build fails, what was compiled is still useful
     - name: save ccache

@@ -35,6 +35,8 @@ _Accendino_ accepts the following command line arguments:
 * `--ccache`: compile through [ccache](https://ccache.dev), see [Caching in CI](#caching-in-ci)
 * `--pruneTools`: at the end of the build, remove from the tools directory what this run didn't use, see
   [Caching in CI](#caching-in-ci)
+* `--cachePackage=<dir>`: keep the installed platform packages in `<dir>` and install them from there, see
+  [Platform packages](#platform-packages)
 * `<accendino file>`: the name of the root _Accendino_ file to load
 
 _Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like period separated string of location where
@@ -527,11 +529,52 @@ The ccache directory changes with every build, it is cached with a new key per r
     restore-keys: ccache-${{ runner.os }}-${{ matrix.cfg.descr }}-
 ```
 
+### Platform packages
+
+`--cachePackage=<dir>` keeps the platform packages that _Accendino_ installs in `<dir>`, to install them from there in
+the next runs. Each package manager able to do it has its own directory in `<dir>`, named after it (`<dir>/dpkg`...),
+with an `accendino-packages.txt` file listing the cached packages: like the tools manifest, restore the cache with a
+key prefix and save it with the hash of these files. The other package managers install without cache, with a warning.
+Only `dpkg` (Debian and Ubuntu) can cache packages for now.
+
+With `dpkg`, the `.deb` files of the installed packages are kept. When the cache is restored, the missing packages are
+installed from these files, without downloading anything and without updating the package index (`apt-get update`). If
+that fails (a package isn't in the cache, the runner image moved a dependency to another version...) _Accendino_
+updates the package index and does a regular install, which adds the missing packages to the cache. After an install,
+the cached packages that are not installed (older versions...) are removed so that the cache doesn't grow. `apt-get`
+runs as root (with `sudo` when needed), the cache directory is given back to the user after an install.
+
+The packages depend on the runner image, put its version in the key. `ImageOS` and `ImageVersion` are environment
+variables of GitHub runners, not in the `env` context of the workflow, so they are read in a step:
+
+```yaml
+- id: image
+  run: echo "key=packages-$ImageOS-$ImageVersion-${{ matrix.cfg.descr }}-" >> "$GITHUB_OUTPUT"
+
+- uses: actions/cache/restore@v6
+  id: packages
+  with:
+    path: pkg-cache
+    key: ${{ steps.image.outputs.key }}
+    restore-keys: ${{ steps.image.outputs.key }}
+
+- run: accendino --cachePackage=pkg-cache ... freerdp.accendino
+
+- uses: actions/cache/save@v6
+  if: steps.packages.outputs.cache-matched-key != format('{0}{1}', steps.image.outputs.key, hashFiles('pkg-cache/*/accendino-packages.txt'))
+  with:
+    path: pkg-cache
+    key: ${{ steps.image.outputs.key }}${{ hashFiles('pkg-cache/*/accendino-packages.txt') }}
+```
+
 ### GitHub action
 
 The `action.yml` at the root of the _Accendino_ repository does all this: it installs _Accendino_ and meson, restores
-the tools and ccache caches, builds with `--pruneTools --ccache` and saves the caches (the tools only when
-`accendino-tools.txt` changed, ccache even when the build fails):
+the tools, ccache and platform packages caches, builds with `--pruneTools --ccache --cachePackage=...` and saves the
+caches (the tools and the packages only when their manifests changed, ccache and the packages even when the build
+fails). With the packages cache on Linux, it doesn't run `apt-get update` itself, _Accendino_ does it when the packages
+can't be installed from the cache. The packages cache key has the runner image (`ImageOS` and `ImageVersion`), or the
+distribution and its version (from `/etc/os-release`) in a container:
 
 ```yaml
 - uses: actions/checkout@v7
@@ -544,5 +587,5 @@ the tools and ccache caches, builds with `--pruneTools --ccache` and saves the c
 
 Its inputs are `file`, `targets`, `extra-args`, `work-dir` (`.accendino` in the workspace, it must stay in the
 workspace), `project` (`ci`, given with `--project` so that the cached directories are known), `cache-tools`,
-`ccache`, `cache-key` (a hash of the file, targets and arguments by default, so each job of a matrix has its own caches)
+`ccache`, `cache-packages` (Linux only), `cache-key` (a hash of the file, targets and arguments by default, so each job of a matrix has its own caches)
 and `python-version`. The `prefix` output is where the targets are installed.

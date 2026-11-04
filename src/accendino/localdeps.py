@@ -1,21 +1,44 @@
 import os
+import pathlib
+import shutil
 import subprocess
 import typing as T
 import re
+import urllib.parse
 
 from zenlog import log as logging
 from accendino.utils import findInPATH
 from accendino.platform import accendinoPlatform
 
 
+# list of the packages kept in a package cache directory, can be used as a CI cache key
+PACKAGES_CACHE_MANIFEST = 'accendino-packages.txt'
+
 class PackageManagerBase:
     ''' base package manager '''
+
+    # the manager can keep the packages it installs in a cache directory (see setCacheDir())
+    supportsCache = False
 
     def __init__(self, name: str=None) -> None:
         self.name = name
         self.allPackages = {}
         self.debug = True
         self.canInstall = True
+        self.cacheDir: T.Optional[pathlib.Path] = None
+
+    def setCacheDir(self, cacheDir: str) -> None:
+        ''' sets the directory where the manager keeps the packages it installs, to install them again from there
+            (when it is restored from a CI cache for instance). Only for the managers with supportsCache
+        '''
+        self.cacheDir = pathlib.Path(cacheDir)
+
+    def writeCacheManifest(self, entries: T.List[str]) -> None:
+        ''' writes the manifest of the cache directory, the list of the cached packages (one entry per line) '''
+        content = ''.join(f'{e}\n' for e in entries)
+        manifest = self.cacheDir / PACKAGES_CACHE_MANIFEST
+        if not manifest.exists() or manifest.read_text(encoding='utf8') != content:
+            manifest.write_text(content, encoding='utf8')
 
     def checkMissing(self, packages: T.List[str]) -> T.List[str]:
         ret = []
@@ -37,12 +60,21 @@ class PackageManagerBase:
 
 
 class DpkgManager(PackageManagerBase):
-    ''' dpkg based package manager '''
+    ''' dpkg based package manager. With a cache directory the downloaded packages are kept there, and installed again
+        from there without downloading them nor updating the package index
+    '''
+
+    supportsCache = True
 
     def __init__(self) -> None:
         PackageManagerBase.__init__(self, "dpkg")
+        self.indexUpdated = False
+        self._loadInstalled()
+        logging.debug(f" * {self.name} package manager: got {len(self.allPackages)} installed packages")
 
+    def _loadInstalled(self) -> None:
         pack_re = re.compile(r'ii[^\w]+([^ ]+)[^\w]+([^ ]+)')
+        self.allPackages = {}
         for l in subprocess.Popen(['dpkg', '-l'], stdout=subprocess.PIPE, bufsize=1024).stdout.readlines():
             matches = pack_re.match(l.decode('utf8'))
             if not matches:
@@ -56,16 +88,108 @@ class DpkgManager(PackageManagerBase):
             version = matches.group(2)
             self.allPackages[pkgName] = version
 
-        logging.debug(f" * {self.name} package manager: got {len(self.allPackages)} installed packages")
+    @staticmethod
+    def _runAsRoot(cmd: T.List[str]) -> bool:
+        if os.getuid() != 0:
+            cmd = ['sudo'] + cmd
+        logging.debug(f'running {" ".join(cmd)}')
+        return subprocess.run(cmd, check=False).returncode == 0
+
+    def _aptOptions(self) -> T.List[str]:
+        if not self.cacheDir:
+            return []
+        # the _apt user that downloads in a sandbox may not be able to write in the cache directory
+        return ['-o', f'Dir::Cache::Archives={self.cacheDir}', '-o', 'APT::Keep-Downloaded-Packages=true',
+                '-o', 'APT::Sandbox::User=root']
+
+    @staticmethod
+    def _debInfo(path: pathlib.Path) -> T.Optional[T.Tuple[str, str, str]]:
+        ''' returns (package, version, arch) from the name of a deb file stored by apt (<pkg>_<version>_<arch>.deb with
+            the version url encoded) '''
+        tokens = path.stem.split('_')
+        if path.suffix != '.deb' or len(tokens) != 3:
+            return None
+        return (tokens[0], urllib.parse.unquote(tokens[1]), tokens[2])
+
+    def _cachedDebs(self) -> T.List[pathlib.Path]:
+        ''' returns the deb files of the cache directory for packages that are not installed '''
+        if not self.cacheDir or not self.cacheDir.is_dir():
+            return []
+
+        ret = []
+        for f in sorted(self.cacheDir.glob('*.deb')):
+            info = self._debInfo(f)
+            if info and info[0] not in self.allPackages:
+                ret.append(f)
+        return ret
 
     def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * {self.name}, installing missing packages: {' '.join(packages)}")
 
-        cmd = f"apt-get install -y --no-install-recommends {' '.join(packages)}"
-        if os.getuid() != 0:
-            cmd = "sudo " + cmd
+        if self.cacheDir:
+            # apt fails when its archives directory doesn't exist
+            os.makedirs(self.cacheDir / 'partial', exist_ok=True)
 
-        return os.system(cmd) == 0
+        baseCmd = ['apt-get', 'install', '-y', '--no-install-recommends'] + self._aptOptions()
+        ok = False
+
+        debs = self._cachedDebs()
+        if debs:
+            # packages from the cache, installed without downloading anything so without a package index update. The
+            # requested packages are given too, if one isn't in the cache this fails and we do a regular install
+            logging.debug(f' * installing from the {len(debs)} packages of the cache {self.cacheDir}')
+            ok = self._runAsRoot(baseCmd + ['--no-download'] + [str(f) for f in debs] + packages)
+            if not ok:
+                logging.info(' * unable to install from the packages cache, doing a regular install')
+
+        if not ok:
+            if self.cacheDir and not self.indexUpdated:
+                if not self._runAsRoot(['apt-get', 'update']):
+                    return False
+                self.indexUpdated = True
+            ok = self._runAsRoot(baseCmd + packages)
+
+        if not ok:
+            return False
+
+        self._loadInstalled()
+        if self.cacheDir:
+            self._updateCache()
+        return True
+
+    def _installedVersions(self) -> T.Set[T.Tuple[str, str]]:
+        p = subprocess.run(['dpkg-query', '-W', '-f', '${Package} ${Version}\\n'], stdout=subprocess.PIPE, text=True, check=False)
+        return {tuple(l.split(' ', 1)) for l in p.stdout.splitlines() if ' ' in l}
+
+    def _updateCache(self) -> None:
+        ''' after an install: gives the cache directory back to the user (apt ran as root), removes the packages that are
+            not installed (older versions...) so that the cache doesn't grow, and writes the manifest of the cache '''
+        cacheDir = self.cacheDir
+        if not cacheDir.is_dir():
+            return
+
+        if os.getuid() != 0:
+            self._runAsRoot(['chown', '-R', f'{os.getuid()}:{os.getgid()}', str(cacheDir)])
+
+        # apt's lock and partial download directory are not worth caching
+        for f in ('lock', 'partial'):
+            path = cacheDir / f
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            elif path.exists():
+                path.unlink()
+
+        installed = self._installedVersions()
+        kept = []
+        for f in sorted(cacheDir.glob('*.deb')):
+            info = self._debInfo(f)
+            if info and (info[0], info[1]) in installed:
+                kept.append(info)
+            else:
+                logging.debug(f' * pruning {f.name} from the packages cache')
+                f.unlink()
+
+        self.writeCacheManifest([' '.join(info) for info in kept])
 
 
 class RpmManager(PackageManagerBase):
@@ -318,6 +442,15 @@ class PackageManager(PackageManagerBase):
 
         return ret
 
+    def setCacheDir(self, cacheDir: str) -> None:
+        ''' each sub manager able to cache packages has its own directory in cacheDir, named after the manager '''
+        PackageManagerBase.setCacheDir(self, cacheDir)
+        for manager in self.managers.values():
+            if manager.supportsCache:
+                manager.setCacheDir(self.cacheDir / manager.name)
+            elif manager.canInstall:
+                logging.warning(f'the {manager.name} package manager can\'t cache packages, installing without cache')
+
     def installPackages(self, packages: T.List[str]) -> bool:
         logging.debug(f" * {self.name}, installing missing packages: {' '.join(packages)}")
 
@@ -351,7 +484,12 @@ class PackageManager(PackageManagerBase):
 
 
 
-def getPkgManager(distribId, packagesToCheck):
+def getPkgManager(distribId, packagesToCheck, cacheDir: T.Optional[str] = None):
+    ''' returns the package manager of the distribution
+        @param distribId: the distribution
+        @param packagesToCheck: packages to check, the manager may add some
+        @param cacheDir: where the managers that can do it keep the packages they install (see setCacheDir())
+    '''
     managers = {'path': InPathSubManager()}
     name = 'unknown'
     if distribId in ('Ubuntu', 'Debian', ):
@@ -380,4 +518,7 @@ def getPkgManager(distribId, packagesToCheck):
         name = 'pacman'
         managers[''] = PacmanManager()
 
-    return PackageManager(name, managers)
+    ret = PackageManager(name, managers)
+    if cacheDir:
+        ret.setCacheDir(cacheDir)
+    return ret
