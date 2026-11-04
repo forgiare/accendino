@@ -44,6 +44,7 @@ def doHelp(args, is_error) -> int:
     print("\t--buildToolchain=<name>: when cross compiling, the toolchain building tools for the build machine")
     print("\t--ccache: compile through ccache (in <project>/ccache unless CCACHE_DIR is set)")
     print("\t--pruneTools: at the end of the run, remove from the tools directory what the run didn't use")
+    print("\t--cachePackage=<dir>: keep the installed packages in <dir> and install them from there (for CI caches)")
     if is_error:
         return 1
 
@@ -201,6 +202,7 @@ class AccendinoConfig:
         self.ccache = False
         self.ccacheEnv: T.Dict[str, str] = {}
         self.pruneTools = False
+        self.packagesCacheDir = None
         self.toolsManifest: T.Dict[str, str] = {}
 
         #
@@ -857,6 +859,8 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
         config.ccache = True
     elif option in ('--pruneTools',):
         config.pruneTools = True
+    elif option in ('--cachePackage',):
+        config.packagesCacheDir = os.path.abspath(value)
     elif option in ("--project", ):
         config.projectName = value
     else:
@@ -875,7 +879,7 @@ def run(args: T.List[str]) -> int:
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "build-as-debug=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=", "buildToolsPrefix=", "buildToolchain=",
-        "buildWithPowershell", "version", "refreshSources", "refresh", "ccache", "pruneTools"
+        "buildWithPowershell", "version", "refreshSources", "refresh", "ccache", "pruneTools", "cachePackage="
     ])
 
     for option, value in opts:
@@ -969,7 +973,7 @@ def run(args: T.List[str]) -> int:
 
     if config.checkPackages:
         packagesToCheck = ['ccache'] if config.ccache else []
-        pkgManager = getPkgManager(config.distribId, packagesToCheck)
+        pkgManager = getPkgManager(config.distribId, packagesToCheck, config.packagesCacheDir)
 
         retCode = config.treatPlatformPackages(pkgManager, packagesToCheck, buildPlan)
         if retCode:
