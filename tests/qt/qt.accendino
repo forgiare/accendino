@@ -1,0 +1,16 @@
+# -*- coding: utf-8 -*-
+#
+#    builds a small Qt program against a Qt installed with aqtinstall, or the system Qt
+#
+#    options:
+#      * qt.version: system, latest, <major>.<minor> or a precise version (latest by default)
+#
+
+ARTIFACTS += [
+    QtInstaller('qt6', flavor=6, version=getOption('qt.version', 'latest'), modules=['qtwebsockets']),
+
+    CMakeBuildArtifact('qthello', ['qt6'], LocalSource(findAsset('src', 'CMakeLists.txt')[:-len('/CMakeLists.txt')], True),
+        toolchainArtifacts='c++'),
+]
+
+DEFAULT_TARGETS = 'qthello'

@@ -32,6 +32,9 @@ _Accendino_ accepts the following command line arguments:
 * `--buildToolsPrefix=<path>`: when cross compiling, where the tools built for the build machine are installed
   (`deploy-build` in the project directory by default), see [Tools for the build machine](#tools-for-the-build-machine)
 * `--buildToolchain=<name>`: when cross compiling, the toolchain that builds tools for the build machine (`default`)
+* `--ccache`: compile through [ccache](https://ccache.dev), see [Caching in CI](#caching-in-ci)
+* `--pruneTools`: at the end of the build, remove from the tools directory what this run didn't use, see
+  [Caching in CI](#caching-in-ci)
 * `<accendino file>`: the name of the root _Accendino_ file to load
 
 _Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like period separated string of location where
@@ -317,6 +320,46 @@ Specific build artifacts objects and their signatures:
     a build artifact that relies on `autotools` / `make` to build
 * `MesonBuildArtifact(name: str, deps, srcObj, mesonOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={})`: a build artifact that relies on `meson` to build
 * `CustomCommandBuildArtifact(name: str, deps, srcObj, extraEnv={}, provides=[], pkgs={}, prepare_src_cmds=[], prepare_cmds=[], build_target='all', install_target='install', builder='make')`: build artifact with the provided `builder` (can be `make`, `makeMsys2`, `nmake` or `ninja`) with specified commands to prepare the source and build directory
+* `CargoBuildArtifact(name: str, deps, srcObj, cargoOpts=[], features=[], noDefaultFeatures=False, capi=False, locked=False, parallelJobs=True, extraEnv={}, provides=[], pkgs={}, cargoProjectDir='{srcdir}', rustVersion='system')`:
+    a rust crate built with `cargo`. By default its binaries are installed in `{prefix}/bin` with `cargo install`, with `capi=True`
+    the crate is a library with a C API built and installed (libraries, headers and pkg-config files) with [cargo-c](https://github.com/lu-zero/cargo-c).
+    `cargoProjectDir` is the directory of the `Cargo.toml` (a workspace member for instance), `features` and `noDefaultFeatures`
+    select the cargo features, `locked` builds with the versions of `Cargo.lock` and `cargoOpts` are extra arguments for `cargo install` / `cargo cinstall`.
+    With `rustVersion='system'` rust comes from the platform packages, otherwise it is a rustup toolchain (`stable`, `1.85.0`, ...)
+    installed with rustup in the tools directory (`tools/rust`). When cross compiling the crate is built for the rust target of the
+    target machine (`x86_64-pc-windows-gnu`, `wasm32-unknown-emscripten`, ...), added to the rustup toolchain when needed
+* `QtInstaller(name: str, deps=[], flavor=6, version='latest', modules=[], provides=[], pkgs={}, aqtArch=None, aqtVersion='3.3.0')`:
+    Qt, see [Qt](#qt)
+
+### Qt
+
+`QtInstaller()` returns an artifact named `name` that gives Qt 5 or 6 (`flavor`) to the artifacts depending on it:
+
+```python
+QtInstaller('qt6', flavor=6, version='latest', modules=['qtwebsockets', 'qtmultimedia'])
+```
+
+* `modules` are named like Qt repositories (`qtwebsockets`, `qtmultimedia`, `qt5compat`...), `qtbase` is always
+  there; `qtbase-private` asks for the private headers of qtbase with platform packages;
+* with `version='system'` it's a `DepsBuildArtifact` requiring the platform packages of these modules (Debian/Ubuntu,
+  Fedora/Redhat, Arch and Homebrew names), `pkgs` adds other ones;
+* otherwise Qt is installed with [aqtinstall](https://github.com/miurahr/aqtinstall) (`aqtVersion`, in a venv of the
+  tools directory) in the `qt/<host>-<target>-<arch>` directory of the tools directory. `version` is `latest` (the
+  latest `<flavor>` release), `<major>.<minor>` (its latest release) or a precise version (`6.8.3`). `latest` and
+  `<major>.<minor>` are resolved once and kept until `--refreshSources`, changing the version or the modules
+  reinstalls Qt and rebuilds what depends on it. With aqt, `qtdeclarative`, `qtsvg`, `qttools`, `qttranslations`
+  and `qtwayland` come with the base installation. The aqt architecture is chosen for the target and the toolchain
+  (`linux_gcc_64`, `win64_msvc2022_64`, `win64_mingw` when cross compiling with mingw, `clang_64` for macOS, ...) or
+  given with `aqtArch`.
+
+The artifacts depending (directly or not) on an aqt installed Qt get its directory in `CMAKE_PREFIX_PATH` and
+`PKG_CONFIG_LIBDIR`, and its `bin` directory in `PATH`. When cross compiling, Qt 6 also needs its tools for the build
+machine: the target artifact has itself as tool dependency, the `native:<name>` installation is given in `QT_HOST_PATH` (read
+by Qt's CMake files) and its `bin` directory in `PATH`. aqt doesn't provide Qt for emscripten nor for Linux cross
+compilation.
+
+Programs installed in the prefix don't have an RPATH to the aqt Qt: run them with `LD_LIBRARY_PATH` (Linux), or use
+Qt's deployment tools.
 
 
 ## Tools for the build machine
@@ -421,3 +464,85 @@ search path of Homebrew's `pkg-config`.
 
 Universal binaries are made by building the project twice, once per architecture with a different `--prefix`, and
 merging the results with `lipo`; _Accendino_ doesn't do this last step.
+
+## Caching in CI
+
+Some parts of a build can be kept between CI runs (with GitHub's `actions/cache` for instance).
+
+### The tools directory
+
+The `tools` directory of the project holds what _Accendino_ installs to build: emsdk, the meson and aqtinstall venvs,
+Qt installed by aqtinstall. It only depends on the versions of these tools, so it can be cached. Each run lists the
+tools it used, with their versions and settings, in `tools/accendino-tools.txt`:
+
+```
+emsdk 6.0.11
+meson-latest 1.9.1
+qt/linux-desktop-linux_gcc_64/6.12.0 6.12.0 linux_gcc_64 qtwebsockets
+```
+
+Versions like Qt's `latest` are resolved in this file, so it is known only after the run: restore the cache with a key
+prefix, and save it with the hash of the file. Installed tools are detected without the build directory, an aqt Qt
+already in the tools directory isn't installed again. `--pruneTools` removes what the run didn't use (an older Qt,
+an older emsdk...), so that the saved cache doesn't grow; it only keeps the tools of the built targets.
+
+```yaml
+- uses: actions/cache/restore@v6
+  id: tools
+  with:
+    path: work/tools
+    key: tools-${{ runner.os }}-${{ matrix.cfg.descr }}-
+    restore-keys: tools-${{ runner.os }}-${{ matrix.cfg.descr }}-
+
+- run: accendino --work-dir=. --pruneTools ... freerdp.accendino
+
+- uses: actions/cache/save@v6
+  if: steps.tools.outputs.cache-matched-key != format('tools-{0}-{1}-{2}', runner.os, matrix.cfg.descr, hashFiles('work/tools/accendino-tools.txt'))
+  with:
+    path: work/tools
+    key: tools-${{ runner.os }}-${{ matrix.cfg.descr }}-${{ hashFiles('work/tools/accendino-tools.txt') }}
+```
+
+### ccache
+
+With `--ccache` the compilations go through [ccache](https://ccache.dev) (the `ccache` platform package is required).
+The cache is in the `ccache` directory of the project, or in `$CCACHE_DIR` when it's set, and `CCACHE_BASEDIR` is the
+project directory. How the compiler is wrapped depends on the artifact:
+* cmake: `-DCMAKE_C_COMPILER_LAUNCHER=ccache` and `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`;
+* meson and autotools: `CC` and `CXX` are prefixed with `ccache`. Meson cross builds take the compilers from the cross
+  file, so they don't use ccache;
+* custom commands only get the ccache settings (`CCACHE_DIR`, ...) in their environment;
+* with emscripten, `EM_COMPILER_WRAPPER=ccache` makes `emcc` run clang through ccache.
+
+`--ccache` is ignored on Windows. Turning it on reconfigures the artifacts (the configuration commands change); cmake
+keeps the launcher in its cache when it is turned off, use `--refresh` to get rid of it.
+
+The ccache directory changes with every build, it is cached with a new key per run and restored with the latest one:
+
+```yaml
+- uses: actions/cache@v6
+  with:
+    path: work/ccache
+    key: ccache-${{ runner.os }}-${{ matrix.cfg.descr }}-${{ github.run_id }}
+    restore-keys: ccache-${{ runner.os }}-${{ matrix.cfg.descr }}-
+```
+
+### GitHub action
+
+The `action.yml` at the root of the _Accendino_ repository does all this: it installs _Accendino_ and meson, restores
+the tools and ccache caches, builds with `--pruneTools --ccache` and saves the caches (the tools only when
+`accendino-tools.txt` changed, ccache even when the build fails):
+
+```yaml
+- uses: actions/checkout@v7
+- uses: forgiare/accendino@master
+  with:
+    file: freerdp.accendino
+    targets: freerdp3
+    extra-args: --targetDistrib=mingw64
+```
+
+Its inputs are `file`, `targets`, `extra-args`, `work-dir` (`.accendino` in the workspace, it must stay in the
+workspace), `project` (`ci`, given with `--project` so that the cached directories are known), `cache-tools`,
+`ccache`, `cache-key` (a hash of the file, targets and arguments by default, so each job of a matrix has its own caches)
+and `python-version`. The `prefix` output is where the targets are installed.

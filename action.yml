@@ -1,0 +1,119 @@
+name: accendino build
+author: "David Fort"
+description: Builds targets of an accendino file, caching the tools directory and ccache between runs
+branding:
+  icon: "zap"
+  color: "orange"
+inputs:
+  file:
+    description: the accendino file
+    required: true
+  targets:
+    description: comma separated targets to build (the default targets of the file when empty)
+    default: ''
+  extra-args:
+    description: other accendino arguments (--targetDistrib=mingw64, --options=..., ...)
+    default: ''
+  work-dir:
+    description: the accendino work directory
+    default: ${{ github.workspace }}/.accendino
+  project:
+    description: the project name, so that the cached directories are known
+    default: ci
+  cache-tools:
+    description: cache the tools directory (emsdk, Qt, meson, ...)
+    default: 'true'
+  ccache:
+    description: compile through ccache and cache it (ignored on Windows)
+    default: 'true'
+  cache-key:
+    description: the cache key prefix, a hash of the build settings when empty
+    default: ''
+  python-version:
+    default: '3.x'
+
+outputs:
+  prefix:
+    description: where the targets are installed
+    value: ${{ steps.setup.outputs.projectDir }}/deploy
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - id: setup
+      shell: bash
+      run: |
+        projectDir="${{ inputs.work-dir }}/${{ inputs.project }}"
+        key="${{ inputs.cache-key }}"
+        if [ -z "$key" ]; then
+          key=$(echo "${{ inputs.file }}|${{ inputs.targets }}|${{ inputs.extra-args }}" | sha256sum | cut -c1-16)
+        fi
+        echo "projectDir=$projectDir" >> "$GITHUB_OUTPUT"
+        echo "key=accendino-${{ runner.os }}-$key" >> "$GITHUB_OUTPUT"
+        echo "ccache=${{ inputs.ccache == 'true' && runner.os != 'Windows' }}" >> "$GITHUB_OUTPUT"
+
+    - name: install accendino
+      shell: bash
+      run: |
+        python -m venv "${{ runner.temp }}/accendino-venv"
+        venvBin="${{ runner.temp }}/accendino-venv/$([ "$RUNNER_OS" = Windows ] && echo Scripts || echo bin)"
+        "$venvBin/pip" install "${{ github.action_path }}" meson
+        echo "$venvBin" >> "$GITHUB_PATH"
+
+    - name: update the package index
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update
+
+    - name: restore the tools directory
+      id: tools
+      if: inputs.cache-tools == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/tools
+        key: ${{ steps.setup.outputs.key }}-tools-
+        restore-keys: ${{ steps.setup.outputs.key }}-tools-
+
+    - name: restore ccache
+      if: steps.setup.outputs.ccache == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/ccache
+        key: ${{ steps.setup.outputs.key }}-ccache-${{ github.run_id }}
+        restore-keys: ${{ steps.setup.outputs.key }}-ccache-
+
+    - name: build
+      shell: bash
+      run: |
+        args=(--work-dir="${{ inputs.work-dir }}" --project="${{ inputs.project }}" --debug)
+        [ -n "${{ inputs.targets }}" ] && args+=(--targets="${{ inputs.targets }}")
+        [ "${{ inputs.cache-tools }}" = true ] && args+=(--pruneTools)
+        [ "${{ steps.setup.outputs.ccache }}" = true ] && args+=(--ccache)
+        accendino "${args[@]}" ${{ inputs.extra-args }} "${{ inputs.file }}"
+        if [ "${{ steps.setup.outputs.ccache }}" = true ]; then
+          CCACHE_DIR="${{ steps.setup.outputs.projectDir }}/ccache" ccache --show-stats
+        fi
+
+    # the key has the tools manifest written by the build, the cache is only saved when the tools changed
+    - name: save the tools directory
+      if: >-
+        inputs.cache-tools == 'true' &&
+        hashFiles(format('{0}/tools/accendino-tools.txt', steps.setup.outputs.projectDir)) != '' &&
+        steps.tools.outputs.cache-matched-key != format('{0}-tools-{1}', steps.setup.outputs.key,
+          hashFiles(format('{0}/tools/accendino-tools.txt', steps.setup.outputs.projectDir)))
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/tools
+        key: ${{ steps.setup.outputs.key }}-tools-${{ hashFiles(format('{0}/tools/accendino-tools.txt', steps.setup.outputs.projectDir)) }}
+
+    # also saved when the build fails, what was compiled is still useful
+    - name: save ccache
+      if: always() && steps.setup.outputs.ccache == 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.setup.outputs.projectDir }}/ccache
+        key: ${{ steps.setup.outputs.key }}-ccache-${{ github.run_id }}

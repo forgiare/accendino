@@ -1,7 +1,9 @@
 import os
+import tempfile
 import unittest
 from accendino.machine import Machine
-from accendino.toolchain import CROSS_FILE_DIR, ClangToolChain, EmscriptenToolChain, GccToolChain, MingwToolChain
+from accendino.toolchain import CROSS_FILE_DIR, ClangToolChain, DefaultToolChain, EmscriptenToolChain, GccToolChain, \
+    MingwToolChain
 from accendino.utils import getArchLibDir, pkgConfigDirs
 
 class Test(unittest.TestCase):
@@ -84,3 +86,28 @@ class Test(unittest.TestCase):
                           '/usr/lib/x86_64-linux-gnu/pkgconfig', '/usr/share/pkgconfig'])
         self.assertIsNone(getArchLibDir('Darwin', 'arm64'))
         self.assertEqual(getArchLibDir('Debian', 'arm64'), 'aarch64-linux-gnu')
+
+    def testDefaultToolchainWithoutPackages(self):
+        # with --no-packages the default toolchain is picked with the compilers in the PATH
+        m = Machine('Ubuntu', '24.04', 'Ubuntu', 'x86_64', 'x86_64')
+        oldPath = os.environ.get('PATH', '')
+        with tempfile.TemporaryDirectory() as d:
+            clang = os.path.join(d, 'clang')
+            with open(clang, 'wt', encoding='utf8') as f:
+                f.write('#!/bin/sh\n')
+            os.chmod(clang, 0o755)
+
+            try:
+                os.environ['PATH'] = d
+                tc = DefaultToolChain(None, machine=m)
+                self.assertTrue(tc.activate())
+                self.assertIsInstance(tc.selectedObj, ClangToolChain)
+                self.assertEqual(tc.extraEnv(['c'])['CC'], 'clang')
+
+                # nothing found: the first one
+                os.environ['PATH'] = os.path.join(d, 'nothing')
+                tc = DefaultToolChain(None, machine=m)
+                self.assertTrue(tc.activate())
+                self.assertIsInstance(tc.selectedObj, GccToolChain)
+            finally:
+                os.environ['PATH'] = oldPath

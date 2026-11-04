@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 import sys
+import shutil
 import getopt
 import os.path
 import platform
@@ -11,13 +12,14 @@ from zenlog import log as logging
 import accendino
 
 from accendino.builditems import BuildArtifact, AutogenBuildArtifact, CMakeBuildArtifact, DepsBuildArtifact, \
-    MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact
+    MesonBuildArtifact, QMakeBuildArtifact, CustomCommandBuildArtifact, CargoBuildArtifact
 from accendino.localdeps import getPkgManager
 from accendino.sources import LocalSource, GitSource, RemoteArchiveSource, Source
 from accendino.utils import ConditionalDep, DepsAdjuster, checkVersionCondition, checkAccendinoVersion, \
     NativePath, RunInShell, mergePkgDeps, is_exact_instance
 from accendino.toolchain import getToolchain, CROSS_FILE_DIR
-from accendino.machine import Machine
+from accendino.machine import Machine, NATIVE_PREFIX
+from accendino.qtinstaller import QtInstaller
 
 
 
@@ -40,6 +42,8 @@ def doHelp(args, is_error) -> int:
     print("\t--toolchain=<name>: the toolchain to use (default, gcc, clang, vs, mingw, emscripten)")
     print("\t--buildToolsPrefix=<prefix>: when cross compiling, where tools for the build machine are installed")
     print("\t--buildToolchain=<name>: when cross compiling, the toolchain building tools for the build machine")
+    print("\t--ccache: compile through ccache (in <project>/ccache unless CCACHE_DIR is set)")
+    print("\t--pruneTools: at the end of the run, remove from the tools directory what the run didn't use")
     if is_error:
         return 1
 
@@ -121,8 +125,6 @@ def detectPlatform() -> None:
 BUILD_TYPES = ('release', 'debug',)
 ARCHS = ('i686', 'x86_64', 'arm64', 'wasm32')
 
-# prefix of the names of the artifacts built for the build machine when cross compiling
-NATIVE_PREFIX = 'native:'
 
 
 class Evaluation:
@@ -151,6 +153,9 @@ ARCHS_MAP = {
     'aarch64': 'arm64', # Linux
     'ARM64': 'arm64', # Windows
 }
+
+# the list of tools used by a run, in the tools directory
+TOOLS_MANIFEST = 'accendino-tools.txt'
 
 class AccendinoConfig:
     ''' Accendino configuration '''
@@ -193,6 +198,10 @@ class AccendinoConfig:
         self.buildMachine: Machine = None
         self.buildToolsPrefix = None
         self.buildToolchain = 'default'
+        self.ccache = False
+        self.ccacheEnv: T.Dict[str, str] = {}
+        self.pruneTools = False
+        self.toolsManifest: T.Dict[str, str] = {}
 
         #
         # populate a search path that has:
@@ -318,6 +327,8 @@ class AccendinoConfig:
             'AutogenBuildArtifact': AutogenBuildArtifact,
             'MesonBuildArtifact': MesonBuildArtifact,
             'CustomCommandBuildArtifact': CustomCommandBuildArtifact,
+            'CargoBuildArtifact': CargoBuildArtifact,
+            'QtInstaller': QtInstaller,
             'BuildArtifact': BuildArtifact,
             'include': includeFn,
             'findAsset': findAssetFn,
@@ -628,6 +639,47 @@ class AccendinoConfig:
         self.targetMachine.crossPlatformFileChooser = self.context.get('CROSS_PLATFORM_FILE_CHOOSER')
         return True
 
+    def registerTool(self, path: str, version: str) -> None:
+        ''' records a tool installed in the tools directory. The tools used by the run are listed in
+            <tools>/accendino-tools.txt, a file that can be used as cache key in CI. With --pruneTools what is
+            not listed is removed from the tools directory at the end of the run
+            @param path: the path of the tool relative to the tools directory
+            @param version: the version (and settings) of the tool
+        '''
+        self.toolsManifest[path] = str(version).replace('\n', ' ').strip()
+        content = ''.join(f'{k} {v}\n' for k, v in sorted(self.toolsManifest.items()))
+
+        manifest = pathlib.Path(self.toolsDir, TOOLS_MANIFEST)
+        if not manifest.exists() or manifest.read_text(encoding='utf8') != content:
+            os.makedirs(self.toolsDir, exist_ok=True)
+            manifest.write_text(content, encoding='utf8')
+
+    def pruneToolsDir(self) -> None:
+        ''' removes from the tools directory what was not registered by this run '''
+        toolsDir = pathlib.Path(self.toolsDir)
+        if not toolsDir.is_dir():
+            return
+
+        kept = {pathlib.PurePosixPath(k) for k in self.toolsManifest}
+        ancestors = {p for k in kept for p in k.parents}
+
+        def prune(d: pathlib.Path, rel: pathlib.PurePosixPath) -> None:
+            for entry in sorted(d.iterdir()):
+                entryRel = rel / entry.name
+                if entryRel in kept or (not rel.parts and entry.name == TOOLS_MANIFEST and kept):
+                    continue
+                if entryRel in ancestors and entry.is_dir() and not entry.is_symlink():
+                    prune(entry, entryRel)
+                    continue
+
+                logging.info(f' * pruning {entry} from the tools directory')
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+
+        prune(toolsDir, pathlib.PurePosixPath())
+
     @staticmethod
     def _mergeToolDeps(item: DepsBuildArtifact) -> T.List[str]:
         ''' returns the dependencies of item with its tool dependencies, without the ones on itself: an artifact can use
@@ -801,6 +853,10 @@ def treatArgOrOption(config, option, value, fromCmdLine) -> int:
         config.buildToolsPrefix = pathlib.PurePath(os.path.abspath(value))
     elif option in ('--buildToolchain',):
         config.buildToolchain = value
+    elif option in ('--ccache',):
+        config.ccache = True
+    elif option in ('--pruneTools',):
+        config.pruneTools = True
     elif option in ("--project", ):
         config.projectName = value
     else:
@@ -819,7 +875,7 @@ def run(args: T.List[str]) -> int:
     opts, extraArgs = getopt.getopt(args[1:], "hdv", [
         "prefix=", "help", "debug", "no-packages", "build-deps", "targets=", "build-type=", "build-as-debug=", "options=",
         "work-dir=", "resume-from=", "project=", "targetDistrib=", "targetArch=", "toolchain=", "buildToolsPrefix=", "buildToolchain=",
-        "buildWithPowershell", "version", "refreshSources", "refresh"
+        "buildWithPowershell", "version", "refreshSources", "refresh", "ccache", "pruneTools"
     ])
 
     for option, value in opts:
@@ -898,8 +954,21 @@ def run(args: T.List[str]) -> int:
 
         logging.debug(f"build plan: [{', '.join(items)}]")
 
+    if config.ccache:
+        if config.distribId == 'Windows':
+            logging.warning('ccache is not supported on Windows, ignoring --ccache')
+            config.ccache = False
+        else:
+            ccacheDir = os.environ.get('CCACHE_DIR') or str(config.projectDir / 'ccache')
+            logging.debug(f'compiling through ccache, cache in {ccacheDir}')
+            config.ccacheEnv = {
+                'CCACHE_DIR': ccacheDir,
+                # paths relative to the project in the cache, so that hits don't depend on the work directory
+                'CCACHE_BASEDIR': str(config.projectDir),
+            }
+
     if config.checkPackages:
-        packagesToCheck = []
+        packagesToCheck = ['ccache'] if config.ccache else []
         pkgManager = getPkgManager(config.distribId, packagesToCheck)
 
         retCode = config.treatPlatformPackages(pkgManager, packagesToCheck, buildPlan)
@@ -967,6 +1036,10 @@ def run(args: T.List[str]) -> int:
             if not isDepsBuildArtifact:
                 if not buildModule(item):
                     return 1
+
+    # tools are registered when artifacts are initialized, so only after a build
+    if config.pruneTools and config.doBuild:
+        config.pruneToolsDir()
 
     logging.info("=== finished ===")
     return exitCode

@@ -3,6 +3,7 @@ import subprocess
 import pickle
 import pathlib
 import typing as T
+import urllib.request
 
 from zenlog import log as logging
 from accendino.sources import Source
@@ -118,6 +119,12 @@ class DepsBuildArtifact:
     def build(self, _config) -> bool:
         return True
 
+    def exportedEnv(self, _config) -> T.Dict[str, str]:
+        ''' environment variables given to the artifacts depending on this one (directly or not), PATH like variables
+            (PATH, CMAKE_PREFIX_PATH, PKG_CONFIG_LIBDIR, ...) are prepended to their value
+        '''
+        return {}
+
     def forceRebuild(self) -> None:
         for f in (self.prepareStateFile, self.builtFile):
             if f and os.path.exists(f):
@@ -131,6 +138,10 @@ WIN_BUILD_SCRIPT = 'build.ps1'
 
 class BuildArtifact(DepsBuildArtifact):
     ''' general build artifact '''
+
+    # how the builds go through ccache with --ccache: 'launcher' (the builder sets it up), 'cc' (CC and CXX are prefixed
+    # with ccache), 'env' (just the ccache settings, the build commands use ccache if they want), None (no ccache)
+    ccacheMode = None
 
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, prepare_cmds = [], build_cmds=[],
                  toolchainArtifacts='c', skipToolchainEnv=False, toolDeps=[], buildMachineOnly=False) -> None:
@@ -221,7 +232,7 @@ class BuildArtifact(DepsBuildArtifact):
             if not isinstance(v, str):
                 v = str(v)
 
-            if k == 'PATH':
+            if k in ('PATH', 'CMAKE_PREFIX_PATH',):
                 self._updatePATHlike(config, base, k, v.split(os.pathsep), sep=os.pathsep)
             elif k in ('PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR',):
                 self._updatePATHlike(config, base, k, v.split(':'))
@@ -284,6 +295,15 @@ class BuildArtifact(DepsBuildArtifact):
 
         self._updateEnvMap(config, r, xx)
 
+        ccacheEnv = self._ccacheEnv(config, r)
+        if ccacheEnv:
+            self._updateEnvMap(config, r, ccacheEnv)
+            xkeys += ccacheEnv.keys()
+
+        for depEnv in self._depsExportedEnv(config):
+            self._updateEnvMap(config, r, depEnv)
+            xkeys += depEnv.keys()
+
         # finally add the user provided extra env
         self._updateEnvMap(config, r, extra)
 
@@ -295,6 +315,38 @@ class BuildArtifact(DepsBuildArtifact):
             fileDumperFn(r, xkeys)
 
         return (r, xkeys)
+
+    def _ccacheEnv(self, config, env: T.Dict[str, str]) -> T.Dict[str, str]:
+        ''' returns the environment variables to compile through ccache, given the environment computed so far '''
+        if not config.ccache or not self.ccacheMode:
+            return {}
+
+        ret = dict(config.ccacheEnv)
+        if self.machine.targetDistrib == 'emscripten':
+            # emcc runs clang through the wrapper, ccache knows clang better than emcc
+            ret['EM_COMPILER_WRAPPER'] = 'ccache'
+        elif self.ccacheMode == 'cc':
+            for k in ('CC', 'CXX'):
+                if env.get(k) and not env[k].startswith('ccache '):
+                    ret[k] = f'ccache {env[k]}'
+        return ret
+
+    def _depsExportedEnv(self, config) -> T.List[T.Dict[str, str]]:
+        ''' returns the environments exported by the dependencies of this artifact, and their dependencies '''
+        ret = []
+        seen = set()
+        todo = list(self.deps)
+        while todo:
+            item = config.getBuildItem(todo.pop(0))
+            if not item or item.name in seen:
+                continue
+
+            seen.add(item.name)
+            todo += item.deps
+            env = item.exportedEnv(config)
+            if env:
+                ret.append(env)
+        return ret
 
     def _expandConfigInString(self, item: str, config) -> str:
         if not isinstance(item, str):
@@ -609,6 +661,8 @@ class BuildArtifact(DepsBuildArtifact):
 class CustomCommandBuildArtifact(BuildArtifact):
     ''' an artifact that is configured with a special command '''
 
+    ccacheMode = 'env'
+
     def __init__(self, name: str, deps, srcObj: Source, extraEnv={}, provides: T.List[str] = [], pkgs={}, prepare_src_cmds=[], prepare_cmds=[],
                  builder='make', build_target='all', install_target='install', toolchainArtifacts='c', skipToolchainEnv=False,
                  toolDeps=[], buildMachineOnly=False) -> None:
@@ -664,6 +718,8 @@ class CustomCommandBuildArtifact(BuildArtifact):
 class CMakeBuildArtifact(BuildArtifact):
     ''' cmake based build item '''
 
+    ccacheMode = 'launcher'
+
     def __init__(self, name: str, deps, srcObj: Source, cmakeOpts=[], parallelJobs=True, extraEnv={}, provides=[], pkgs={},
                  toolchainArtifacts='c', cmakeProjectDir='{srcdir}', toolDeps=[], buildMachineOnly=False) -> None:
         '''
@@ -712,6 +768,9 @@ class CMakeBuildArtifact(BuildArtifact):
                '-S', self.cmakeProjectDir,
                '-B', '{builddir}'
         ]
+
+        if config.ccache and self.machine.targetDistrib != 'emscripten':
+            cmake_cmd += ['-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache']
 
         cmake_cmd += self.cmakeOpts
 
@@ -800,6 +859,8 @@ class QMakeBuildArtifact(BuildArtifact):
 class AutogenBuildArtifact(BuildArtifact):
     ''' autotools/autogen.sh + make based build item '''
 
+    ccacheMode = 'cc'
+
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, autogenArgs=[], noconfigure=False,
                  isAutogen=True, bootstrapScript='bootstrap.sh', configureArgs=[], runInstallDir='{builddir}', toolchainArtifacts='c',
                  toolDeps=[], buildMachineOnly=False) -> None:
@@ -865,6 +926,8 @@ class AutogenBuildArtifact(BuildArtifact):
 class MesonBuildArtifact(BuildArtifact):
     ''' meson + ninja based build item '''
 
+    ccacheMode = 'cc'
+
     def __init__(self, name, deps, srcObj: Source, extraEnv={}, provides=[], pkgs={}, mesonOpts=[], parallelJobs=True,
                  toolchainArtifacts='c', mesonVersion: str = 'system', toolDeps=[], buildMachineOnly=False) -> None:
         '''
@@ -917,18 +980,25 @@ class MesonBuildArtifact(BuildArtifact):
         self.mesonPath = mesonRootDir / 'bin' / 'meson'
         if os.path.exists(mesonRootDir) and os.path.exists(self.mesonPath):
             logging.debug(f"meson {self.mesonVersion} already installed")
-            return True
+        else:
+            mesonVersionString = 'meson'
+            if self.mesonVersion != 'latest':
+                mesonVersionString = f'meson=={self.mesonVersion}'
 
-        mesonVersionString = 'meson'
-        if self.mesonVersion != 'latest':
-            mesonVersionString = f'meson=={self.mesonVersion}'
+            env = os.environ.copy()
+            cmds = [
+                (['python', '-m', 'venv', mesonRootDir], '.', f'creating venv for {mesonVersionString}'),
+                ([mesonRootDir / 'bin' / 'pip', 'install', mesonVersionString], '.', f'installing {mesonVersionString}'),
+            ]
+            if not self.runCommands(cmds, env, config):
+                return False
 
-        env = os.environ.copy()
-        cmds = [
-            (['python', '-m', 'venv', mesonRootDir], '.', f'creating venv for {mesonVersionString}'),
-            ([mesonRootDir / 'bin' / 'pip', 'install', mesonVersionString], '.', f'installing {mesonVersionString}'),
-        ]
-        return self.runCommands(cmds, env, config)
+        version = self.mesonVersion
+        if version == 'latest':
+            p = subprocess.run([str(self.mesonPath), '--version'], stdout=subprocess.PIPE, text=True, check=False)
+            version = p.stdout.strip() or version
+        config.registerTool(f'meson-{self.mesonVersion}', version)
+        return True
 
     def _writeNativeFile(self, config) -> str:
         ''' writes the meson native file used when cross compiling, so that dependency(..., native: true) looks in the
@@ -997,4 +1067,207 @@ class MesonBuildArtifact(BuildArtifact):
             ([self.mesonPath, 'install'], '{builddir}', 'installing'),
         ]
 
+        return BuildArtifact.prepare(self, config)
+
+
+RUST_ARCHS = {
+    'x86_64': 'x86_64',
+    'i686': 'i686',
+    'arm64': 'aarch64',
+    'wasm32': 'wasm32',
+}
+
+def rustTriple(targetDistrib: str, arch: str, toolchainName: str = None) -> str:
+    ''' returns the rust target triple for a distribution and an architecture
+        @param targetDistrib: the target distribution (Ubuntu, Fedora, mingw, Windows, Darwin, FreeBSD, emscripten, ...)
+        @param arch: the accendino architecture (x86_64, i686, arm64, wasm32)
+        @param toolchainName: the toolchain, used to choose between the gnu and msvc ABIs on Windows
+        @return the rust triple
+    '''
+    rustArch = RUST_ARCHS.get(arch, arch)
+    if targetDistrib == 'emscripten':
+        return 'wasm32-unknown-emscripten'
+    if targetDistrib == 'mingw' or (targetDistrib == 'Windows' and toolchainName == 'mingw'):
+        return f'{rustArch}-pc-windows-gnullvm' if rustArch == 'aarch64' else f'{rustArch}-pc-windows-gnu'
+    if targetDistrib == 'Windows':
+        return f'{rustArch}-pc-windows-msvc'
+    if targetDistrib == 'Darwin':
+        return f'{rustArch}-apple-darwin'
+    if targetDistrib == 'FreeBSD':
+        return f'{rustArch}-unknown-freebsd'
+    return f'{rustArch}-unknown-linux-gnu'
+
+
+class CargoBuildArtifact(BuildArtifact):
+    ''' rust / cargo based build item '''
+
+    ccacheMode = 'env'
+
+    def __init__(self, name, deps, srcObj: Source, cargoOpts=[], features=[], noDefaultFeatures=False, capi=False, locked=False,
+                 parallelJobs=True, extraEnv={}, provides=[], pkgs={}, toolchainArtifacts='c', cargoProjectDir='{srcdir}',
+                 rustVersion: str = 'system', toolDeps=[], buildMachineOnly=False) -> None:
+        '''
+            @param name: name of the build artifact
+            @param deps: list of dependencies to other build artifacts
+            @param srcObj: Source object for checking out code
+            @param cargoOpts: extra arguments given to cargo install (or cargo cinstall)
+            @param features: cargo features to enable
+            @param noDefaultFeatures: disable the default features of the crate
+            @param capi: the crate is a library exposing a C API, built and installed with cargo-c (headers, libraries
+                    and pkg-config files) instead of installing its binaries with cargo install
+            @param locked: build with the versions of Cargo.lock (--locked)
+            @param parallelJobs: build with parallel jobs
+            @param extraEnv: extra environment variable to use when running commands
+            @param provides: list of provided build artifacts
+            @param pkgs: required platform packages
+            @param toolchainArtifacts: artifacts that we need from the toolchain (the C compiler is used for linking and
+                    by the crates compiling C code)
+            @param cargoProjectDir: directory of the Cargo.toml of the crate to build, by default the root of the sources
+                    (give the directory of the crate for a workspace member)
+            @param rustVersion: the rust toolchain to use: 'system' for the one of the platform packages, otherwise a rustup
+                    toolchain ('stable', 'nightly', '1.85.0', ...) installed in the tools directory
+            @param toolDeps: dependencies to artifacts used as tools during the build, built for the build machine when
+                             cross compiling
+            @param buildMachineOnly: a tool only built for the build machine, when cross compiling deps to it go to native:
+        '''
+        extra = {}
+        if rustVersion == 'system':
+            capiPkgs = ['cargo-c'] if capi else []
+            extra = {
+                'Ubuntu|Debian': ['cargo', 'rustc'] + capiPkgs,
+                'Fedora|Redhat': ['cargo', 'rust'] + capiPkgs,
+                'Arch|FreeBSD|Darwin': ['rust'] + capiPkgs,
+            }
+            doCrossDeps(['Ubuntu', 'Debian'], ['cargo', 'rustc'] + capiPkgs, extra)
+            doCrossDeps(['Fedora', 'Redhat'], ['cargo', 'rust'] + capiPkgs, extra)
+
+            # the rust std of the mingw targets
+            for key, stdPkg in (('Fedora->mingw@x86_64', 'rust-std-static-x86_64-pc-windows-gnu'),
+                                ('Fedora->mingw@i686', 'rust-std-static-i686-pc-windows-gnu'),
+                                ('Ubuntu->mingw@x86_64', 'libstd-rust-dev-windows'),
+                                ('Debian->mingw@x86_64', 'libstd-rust-dev-windows')):
+                extra[key] = extra.get(key, []) + [stdPkg]
+
+        pkgs = mergePkgDeps(pkgs, extra)
+        BuildArtifact.__init__(self, name, deps, srcObj, extraEnv, provides, pkgs, toolchainArtifacts=toolchainArtifacts, toolDeps=toolDeps,
+                               buildMachineOnly=buildMachineOnly)
+        self.cargoOpts = cargoOpts
+        self.features = features
+        self.noDefaultFeatures = noDefaultFeatures
+        self.capi = capi
+        self.locked = locked
+        self.parallelJobs = parallelJobs
+        self.cargoProjectDir = cargoProjectDir
+        self.rustVersion = rustVersion
+        self.userExtraEnv = extraEnv
+        # set in init() when using a rust toolchain installed with rustup
+        self.rustEnv = {}
+
+    def rustTarget(self) -> T.Optional[str]:
+        ''' returns the rust target triple when cross compiling, None otherwise '''
+        if not self.machine.crossCompilation:
+            return None
+        return rustTriple(self.machine.targetDistrib, self.machine.arch, self.machine.toolchainObj.description)
+
+    def init(self, config) -> bool:
+        if not BuildArtifact.init(self, config):
+            return False
+
+        if self.rustVersion == 'system':
+            return True
+
+        # rustup and its toolchains in the tools directory, shared by all the cargo artifacts
+        rustDir = pathlib.Path(config.toolsDir, 'rust')
+        cargoHome = rustDir / 'cargo'
+        rustupHome = rustDir / 'rustup'
+        exe = '.exe' if config.distribId == 'Windows' else ''
+        rustup = cargoHome / 'bin' / f'rustup{exe}'
+
+        env = os.environ.copy()
+        env['CARGO_HOME'] = str(cargoHome)
+        env['RUSTUP_HOME'] = str(rustupHome)
+
+        if not rustup.exists():
+            hostTriple = rustTriple(config.distribId, config.localArch)
+            url = f'https://static.rust-lang.org/rustup/dist/{hostTriple}/rustup-init{exe}'
+            os.makedirs(rustDir, exist_ok=True)
+            rustupInit = rustDir / f'rustup-init{exe}'
+            logging.debug(f'downloading {url}')
+            try:
+                urllib.request.urlretrieve(url, rustupInit)
+            except Exception as e:
+                logging.error(f'unable to download rustup-init from {url}: {e}')
+                return False
+            rustupInit.chmod(0o755)
+
+            cmd = [str(rustupInit), '-y', '--no-modify-path', '--profile', 'minimal', '--default-toolchain', 'none']
+            ok = self.runCommands([(cmd, '.', 'installing rustup')], env, config)
+            rustupInit.unlink(missing_ok=True)
+            if not ok:
+                return False
+
+        # rustup does nothing for an installed toolchain (except for channels like stable that get updated)
+        cmds = [([str(rustup), 'toolchain', 'install', '--profile', 'minimal', '--no-self-update', self.rustVersion], '.',
+                 f'installing rust {self.rustVersion}')]
+        target = self.rustTarget()
+        if target:
+            cmds.append(([str(rustup), 'target', 'add', '--toolchain', self.rustVersion, target], '.', f'adding rust target {target}'))
+        if not self.runCommands(cmds, env, config):
+            return False
+
+        self.rustEnv = {
+            'CARGO_HOME': str(cargoHome),
+            'RUSTUP_HOME': str(rustupHome),
+            'RUSTUP_TOOLCHAIN': self.rustVersion,
+            'PATH': str(cargoHome / 'bin'),
+        }
+
+        p = subprocess.run([str(rustup), 'toolchain', 'list'], env=env, stdout=subprocess.PIPE, text=True, check=False)
+        config.registerTool('rust', ' '.join(line.split()[0] for line in p.stdout.splitlines() if line.strip()))
+        return True
+
+    def prepare(self, config) -> bool:
+        target = self.rustTarget()
+
+        extraEnv = dict(self.rustEnv)
+        if target:
+            # let the pkg-config crate find the libraries of the target
+            extraEnv['PKG_CONFIG_ALLOW_CROSS'] = '1'
+            # CC is the target compiler, crates compiling C code in build scripts for the build machine use HOST_CC
+            if config.distribId != 'Windows':
+                extraEnv.update({'HOST_CC': 'cc', 'HOST_CXX': 'c++'})
+        extraEnv.update(self.userExtraEnv)
+        self.extraEnv = extraEnv
+
+        manifest = os.path.join(self.cargoProjectDir, 'Cargo.toml')
+        targetOpts = ['--target', target] if target else []
+        if self.locked:
+            targetOpts += ['--locked']
+
+        self.prepare_cmds = [
+            (['cargo', 'fetch', '--manifest-path', manifest] + targetOpts, '{builddir}', 'fetching crates')
+        ]
+
+        profile = 'dev' if self.buildType == 'debug' else 'release'
+        opts = ['--target-dir', '{builddir}/target', '--profile', profile] + targetOpts
+        if self.features:
+            opts += ['--features', ','.join(self.features)]
+        if self.noDefaultFeatures:
+            opts += ['--no-default-features']
+        if not self.parallelJobs:
+            opts += ['-j', '1']
+        elif config.maxJobs:
+            opts += ['-j', f'{config.maxJobs}']
+
+        if self.capi:
+            cmd = ['cargo', 'cinstall', '--manifest-path', manifest, '--prefix', '{prefix_posix}',
+                   '--libdir', '{libdir}']
+        else:
+            # --force reinstalls when the sources changed without a version bump, --no-track doesn't put cargo
+            # bookkeeping files in the prefix
+            cmd = ['cargo', 'install', '--path', self.cargoProjectDir, '--root', '{prefix}', '--force', '--no-track']
+
+        self.build_cmds = [
+            (cmd + opts + self.cargoOpts, '{builddir}', 'building and installing')
+        ]
         return BuildArtifact.prepare(self, config)

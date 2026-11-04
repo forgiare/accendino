@@ -47,13 +47,21 @@ Everything lives under `src/accendino/`:
   each artifact: `init()` → `checkout()` → `prepare()` → `build()`.
 - **`builditems.py`** — the artifact class hierarchy: `DepsBuildArtifact` (base, meta-only, no
   source/build) → `BuildArtifact` (generic prepare_cmds/build_cmds) → `CMakeBuildArtifact`,
-  `MesonBuildArtifact`, `QMakeBuildArtifact`, `AutogenBuildArtifact`, `CustomCommandBuildArtifact`.
+  `MesonBuildArtifact`, `QMakeBuildArtifact`, `AutogenBuildArtifact`, `CustomCommandBuildArtifact`,
+  `CargoBuildArtifact` (rust, `cargo install` or cargo-c, rust from packages or rustup in the tools directory).
   Build state is cached on disk per artifact via two marker files in the artifact's build dir:
   `accendino.prepared` (pickled `BuildStepDump` of env+commands, compared to detect drift) and
   `accendino.built`. `needsRebuildFromDepsUpdates()` cascades rebuilds to dependents by comparing
   `builtFile` mtimes. `--refreshSources` drops these markers when `GitSource.checkout()` detects the
   upstream actually moved; `--refresh` (`AccendinoConfig.refresh`) unconditionally drops them for the
   explicitly requested targets via `BuildArtifact.forceRebuild()`.
+  An artifact can give environment variables to the ones depending on it with `exportedEnv()`.
+  **`qtinstaller.py`** has `QtInstaller()`: Qt from platform
+  packages, or installed by aqtinstall in the tools directory (`AqtQtArtifact`, exporting `CMAKE_PREFIX_PATH`,
+  `QT_HOST_PATH`...).
+  `--ccache` wraps the compilers with ccache per builder (`BuildArtifact.ccacheMode`). Tools installed in the tools
+  directory are registered with `AccendinoConfig.registerTool()`, which writes `tools/accendino-tools.txt` (a CI cache
+  key); `--pruneTools` removes what wasn't registered.
 - **`sources.py`** — `Source` subclasses (`GitSource`, `LocalSource`, `RemoteArchiveSource`) that know
   how to populate an artifact's source directory and report whether they actually changed it
   (`self.refreshed`), which feeds the rebuild-cascade logic above.

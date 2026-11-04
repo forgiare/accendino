@@ -4,6 +4,9 @@
 ''' the machine build artifacts are built for '''
 import typing as T
 
+# prefix of the names of the artifacts built for the build machine when cross compiling
+NATIVE_PREFIX = 'native:'
+
 
 class Machine:
     ''' A machine that build artifacts are built for. The build commands always run on the local machine

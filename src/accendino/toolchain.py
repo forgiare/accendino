@@ -6,13 +6,16 @@ import tempfile
 import typing as T
 from zenlog import log as logging
 from accendino.localdeps import PackageManager
-from accendino.utils import treatPackageDeps
+from accendino.utils import treatPackageDeps, findInPATH
 
 # the cross files shipped with accendino
 CROSS_FILE_DIR = pathlib.Path(__file__).parent / 'cross'
 
 class IToolChain:
     ''' Abstract toolchain '''
+
+    # the compiler program, used by the default toolchain to pick a toolchain without checking packages
+    compilerProgram = None
 
     def __init__(self, name, config, machine=None):
         '''
@@ -226,6 +229,8 @@ class VsToolChain(IToolChain):
 class GccToolChain(IToolChain):
     ''' Toolchain with GCC '''
 
+    compilerProgram = 'gcc'
+
     def __init__(self, config, machine=None):
         IToolChain.__init__(self, 'Gcc', config, machine)
         self.artifactRequires = {
@@ -256,6 +261,8 @@ class GccToolChain(IToolChain):
 
 class ClangToolChain(IToolChain):
     ''' Toolchain with clang '''
+
+    compilerProgram = 'clang'
 
     def __init__(self, config, machine=None):
         IToolChain.__init__(self, 'Clang', config, machine)
@@ -430,8 +437,10 @@ class EmscriptenToolChain(IToolChain):
             self.emsdkDir = pathlib.Path(emsdk)
         else:
             self.emsdkDir = pathlib.Path(self.config.toolsDir) / 'emsdk'
-            if not self._installEmsdk(self.emsdkDir, self._getOption('version', EMSDK_DEFAULT_VERSION)):
+            version = self._getOption('version', EMSDK_DEFAULT_VERSION)
+            if not self._installEmsdk(self.emsdkDir, version):
                 return False
+            self.config.registerTool('emsdk', version)
 
         # source emsdk_env.sh once to catch the environment it sets (PATH, EMSDK, EMSDK_NODE, ...). It is sourced
         # from the emsdk directory as it can't find its own location in a plain POSIX sh. The dumps are NUL
@@ -505,7 +514,23 @@ class DefaultToolChain(IToolChain):
                 return True
         return False
 
+    def _selectWithoutPackages(self) -> None:
+        ''' picks a toolchain when the packages were not checked (--no-packages): the first one whose compiler is in
+            the PATH, the first one if none is found
+        '''
+        for o in self.testObjs:
+            if not o.compilerProgram or findInPATH(o.compilerProgram):
+                self.selectedObj = o
+                break
+        else:
+            self.selectedObj = self.testObjs[0]
+
+        logging.debug(f' * packages not checked, using {self.selectedObj.name} toolchain')
+        self.description = self.selectedObj.name
+
     def activate(self) -> bool:
+        if not self.selectedObj:
+            self._selectWithoutPackages()
         return self.selectedObj.activate()
 
     def prepareItems(self) -> str:
