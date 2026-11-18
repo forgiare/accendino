@@ -115,7 +115,12 @@ def computeEnvDiff(inputIter):
             target = env2
             continue
 
-        var, value = l.split('=', 2)
+        if '=' not in l:
+            # not a variable, like the banner printed by vcvars
+            continue
+
+        # values can contain '=', like the base64 <id>_POSIX_FD_STATE=AAAAAAICAgA= set in Win32-OpenSSH sessions
+        var, value = l.split('=', 1)
         if var.lower() == 'path':
             var = 'PATH'
         target[var] = value
