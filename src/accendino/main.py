@@ -50,7 +50,52 @@ def doHelp(args, is_error) -> int:
 
     return 0
 
-def detectPlatform() -> None:
+OS_RELEASE_IDS = {
+    'rhel': 'Redhat',
+    'rocky': 'Redhat',
+    'almalinux': 'Redhat',
+    'centos': 'Redhat',
+    'ol': 'Redhat',
+    'fedora': 'Fedora',
+    'ubuntu': 'Ubuntu',
+    'debian': 'Debian',
+    'arch': 'Arch',
+    'freebsd': 'FreeBSD',
+}
+
+def parseOsRelease(content: str) -> T.Tuple[T.Optional[str], T.Optional[str]]:
+    ''' computes the accendino distribution id and version from the content of an os-release file
+
+        @param content: content of the os-release file
+        @return a tuple (distribId, distribVersion), (None, None) if the distribution is not known
+    '''
+    values = {}
+    for l in content.splitlines():
+        l = l.strip()
+        if not l or l.startswith('#') or '=' not in l:
+            continue
+
+        key, value = l.split('=', 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        values[key.strip()] = value
+
+    # rolling distributions like Arch have no VERSION_ID
+    version = values.get('VERSION_ID', values.get('BUILD_ID', ''))
+    distribId = OS_RELEASE_IDS.get(values.get('ID', '').lower(), None)
+    if distribId is not None:
+        return (distribId, version)
+
+    # other RHEL rebuilds keep the RHEL version in VERSION_ID, that's not the case for derivatives of other
+    # distributions (Mint's version is not an Ubuntu version)
+    if 'rhel' in values.get('ID_LIKE', '').lower().split():
+        return ('Redhat', version)
+
+    return (None, None)
+
+
+def detectPlatform() -> T.Tuple[T.Optional[str], T.Optional[str]]:
     ''' '''
     distrib_id = None
     distrib_version = None
@@ -94,24 +139,16 @@ def detectPlatform() -> None:
         except:
             logging.debug(" * failed reading /etc/fedora-version  (not an error)")
 
-    elif plat_system in ('Linux', 'FreeBSD',):
-        # Arch / FreeBSD
-        try:
-            distrib_id = None
-            distrib_ver = None
-            for l in open("/etc/os-release", "rt", encoding='utf8').readlines():
-                l = l.strip()
-                if l.startswith('ID='):
-                    distrib_id = l[3:]
-                elif l.starstwith('BUILD_ID='):
-                    distrib_ver = l[9:]
-                elif l.startswith('VERSION_ID="'):
-                    distrib_ver = l[len('VERSION_ID="') : -1]
-
-                if distrib_id is not None and distrib_ver is not None:
-                    return (distrib_id, distrib_ver)
-        except:
-            logging.debug(" * failed reading /etc/os-release")
+    if plat_system in ('Linux', 'FreeBSD',):
+        # RHEL clones (Rocky, Alma, CentOS...), Arch, FreeBSD
+        for path in ('/etc/os-release', '/usr/lib/os-release'):
+            try:
+                with open(path, "rt", encoding='utf8') as f:
+                    ret = parseOsRelease(f.read())
+                if ret[0] is not None:
+                    return ret
+            except OSError:
+                logging.debug(f" * failed reading {path}  (not an error)")
 
     elif plat_system in ("Windows", "Darwin",):
         distrib_id = plat_system
