@@ -1,12 +1,13 @@
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools >= 77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "accendino"
 description = "A build framework for your complex projects"
 readme = "README.md"
-license = { file = "LICENSE.txt" }
+license = "AGPL-3.0-only"
+license-files = ["LICENSE.txt"]
 dynamic = ["version"]
 
 keywords = ["build-system", "ogon", "development"]
@@ -14,7 +15,6 @@ classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Natural Language :: English",
   "Operating System :: MacOS :: MacOS X",
   "Operating System :: Microsoft :: Windows",
