@@ -558,6 +558,8 @@ class BuildArtifact(DepsBuildArtifact):
         if os.path.exists(self.builtFile):
             os.remove(self.builtFile)
 
+        self.beforePrepare(config, dumpOnDisk is not None)
+
         scriptBuilder = self._createPrepareFileWin32 if self.machine.distribId in ('Windows',) else self._createPrepareFileUnix
         scriptBuilder(config, env, xkeys)
 
@@ -577,6 +579,10 @@ class BuildArtifact(DepsBuildArtifact):
             return True
 
         return False
+
+    def beforePrepare(self, _config, _settingsChanged: bool) -> None:
+        ''' called when the prepare commands are going to run, settingsChanged is True when the environment or the
+            commands differ from the ones of the last successful prepare '''
 
     def createBuiltFile(self) -> bool:
         try:
@@ -1080,10 +1086,6 @@ class MesonBuildArtifact(BuildArtifact):
         ]
         self.prepareDumpCmds = self.prepare_cmds[:]
 
-        # meson keeps the found dependencies when reconfiguring, look them up again (a dependency may have been rebuilt)
-        if os.path.exists(self.buildDir / 'meson-info'):
-            self.prepare_cmds.insert(0, ([self.mesonPath, 'configure', '--clearcache'], '{builddir}', 'clearing meson cache'))
-
         concurrentArgs = ['-j', '1']
         if self.parallelJobs:
             concurrentArgs = ['-j', f'{config.maxJobs}'] if config.maxJobs else []
@@ -1094,6 +1096,28 @@ class MesonBuildArtifact(BuildArtifact):
         ]
 
         return BuildArtifact.prepare(self, config)
+
+    def beforePrepare(self, _config, settingsChanged: bool) -> None:
+        mesonPrivate = self.buildDir / 'meson-private'
+        if os.path.exists(mesonPrivate):
+            # meson --reconfigure keeps the programs (compilers, pkg-config, ...) found by the first configure and ignores
+            # the environment variables selecting other ones, so restart from an empty build directory when the
+            # environment or the options have changed, or when the last configure failed (no build.dat)
+            if settingsChanged or not os.path.exists(mesonPrivate / 'build.dat'):
+                logging.debug(f'cleaning the meson build directory {self.buildDir}')
+                for entry in os.scandir(self.buildDir):
+                    # the log and the native file (already written for this configure) are ours
+                    if entry.name in ('build.log', 'accendino-native.ini'):
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        shutil.rmtree(entry.path)
+                    else:
+                        os.remove(entry.path)
+                return
+
+        # meson keeps the found dependencies when reconfiguring, look them up again (a dependency may have been rebuilt)
+        if os.path.exists(self.buildDir / 'meson-info'):
+            self.prepare_cmds.insert(0, ([self.mesonPath, 'configure', '--clearcache'], '{builddir}', 'clearing meson cache'))
 
 
 RUST_ARCHS = {
