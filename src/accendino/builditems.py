@@ -1,6 +1,7 @@
 import os
 import subprocess
 import pickle
+import shutil
 import pathlib
 import typing as T
 import urllib.request
@@ -8,7 +9,7 @@ import urllib.request
 from zenlog import log as logging
 from accendino.sources import Source
 from accendino.utils import mergePkgDeps, treatPackageDeps, doCrossDeps, RunInShell, as_msys2_path, \
-    pkgConfigDirs
+    pkgConfigDirs, pkgConfigPathSep
 
 
 # environment variables that change from one shell session to another (typically a new SSH
@@ -246,9 +247,14 @@ class BuildArtifact(DepsBuildArtifact):
             if k in ('PATH', 'CMAKE_PREFIX_PATH',):
                 self._updatePATHlike(config, base, k, v.split(os.pathsep), sep=os.pathsep)
             elif k in ('PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR',):
-                self._updatePATHlike(config, base, k, v.split(':'))
+                sep = self._pkgConfigSep()
+                self._updatePATHlike(config, base, k, v.split(sep), sep=sep)
             else:
                 base[k] = v
+
+    def _pkgConfigSep(self) -> str:
+        ''' the separator of the PKG_CONFIG_PATH / PKG_CONFIG_LIBDIR lists for the pkg-config of this artifact '''
+        return pkgConfigPathSep(self.machine.distribId, self.needsMsys2)
 
     def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Tuple[T.Dict[str, str], T.List[str]]:
         r = os.environ.copy()
@@ -275,8 +281,9 @@ class BuildArtifact(DepsBuildArtifact):
 
         # add a PKG_CONFIG_LIBDIR
         xkeys.append('PKG_CONFIG_LIBDIR')
-        pkg_config_path = ':'.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
-                                                 orig_pkg_config_path, self.machine.crossCompilation))
+        pkgConfigSep = self._pkgConfigSep()
+        pkg_config_path = pkgConfigSep.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
+                                                          orig_pkg_config_path, self.machine.crossCompilation, pkgConfigSep))
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,
@@ -959,6 +966,8 @@ class MesonBuildArtifact(BuildArtifact):
         extra = {
             'Ubuntu|Debian|Redhat|Fedora': ['ninja-build'],
             'Arch|FreeBSD|Darwin': ['ninja'],
+            # meson refuses the pkg-config of Strawberry Perl (pkg-config.bat), the only one usually in the PATH
+            'Windows': ['choco/pkgconfiglite|path/pkg-config.exe'],
         }
 
         crossDeps = ['ninja-build']
@@ -982,6 +991,12 @@ class MesonBuildArtifact(BuildArtifact):
     def init(self, config) -> bool:
         if not BuildArtifact.init(self, config):
             return False
+
+        # meson finds the pkg-config Perl script of Strawberry Perl before a real pkg-config.exe and refuses it
+        if self.machine.distribId == 'Windows' and 'PKG_CONFIG' not in self.extraEnv and 'PKG_CONFIG' not in os.environ:
+            pkgConfig = shutil.which('pkg-config.exe')
+            if pkgConfig:
+                self.extraEnv = {**self.extraEnv, 'PKG_CONFIG': pkgConfig}
 
         if self.mesonVersion == 'system':
             return True
