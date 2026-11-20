@@ -19,6 +19,15 @@ VOLATILE_ENV_VARS = {
     'SESSIONNAME', 'CLIENTNAME',
 }
 
+# same, for variables whose name is prefixed by a per-session id, like the <id>_POSIX_FD_STATE set
+# by Win32-OpenSSH
+VOLATILE_ENV_SUFFIXES = ('_POSIX_FD_STATE',)
+
+def isVolatileEnvVar(name: str) -> bool:
+    if name in VOLATILE_ENV_VARS:
+        return True
+    return name.upper().endswith(VOLATILE_ENV_SUFFIXES)
+
 class BuildStepDump:
     def __init__(self):
         self.gitCommit = None
@@ -31,7 +40,9 @@ class BuildStepDump:
 
         # check environment
         keys = set(self.env.keys()) | set(other.env.keys())
-        for k in keys - VOLATILE_ENV_VARS:
+        for k in keys:
+            if isVolatileEnvVar(k):
+                continue
             if self.env.get(k, None) != other.env.get(k, None):
                 logging.debug(f'environment variable {k} has changed since last prepare')
                 return False
