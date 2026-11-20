@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+
+#
+#  Copyright (C) 2026 David Fort
+#
+#    Building crashpad from Sentry's fork (https://github.com/getsentry/crashpad), it has a CMake build so
+#    there's no need for depot_tools / gclient / gn like with the upstream sources.
+#
+#    options (in the [crashpad] section):
+#      * url / tag: git repository and branch or tag (the fork has no tags, getsentry is its main branch)
+#      * with_stacktrace: client side stack trace recording (needs libunwind on Linux)
+#
+#    installs in the prefix:
+#      * crashpad_handler (and crashpad_wer.dll on Windows) in <prefix>/bin
+#      * headers in <prefix>/include/crashpad
+#      * a crashpad package in <prefix>/<libdir>/cmake/crashpad: consumers use find_package(crashpad) and link
+#        with crashpad::client
+#
+
+crashpad_deps = []
+crashpad_options = [
+    '-DCRASHPAD_ENABLE_INSTALL=ON',
+    '-DCRASHPAD_ENABLE_INSTALL_DEV=ON',
+]
+crashpad_pkgs = {}
+
+if targetDistribId == 'Windows':
+    # crashpad uses its bundled zlib with MSVC, and the ml64 assembler that comes with Visual Studio
+    crashpad_options.append('-DCRASHPAD_ZLIB_SYSTEM=OFF')
+else:
+    include('zlib')
+    crashpad_deps.append('zlib-artifact')
+    crashpad_options.append('-DCRASHPAD_ZLIB_SYSTEM=ON')
+
+if targetDistribId not in ('Windows', 'mingw', 'Darwin', 'emscripten',):
+    # Linux uploads reports with libcurl
+    include('curl')
+    crashpad_deps.append('curl-artifact')
+
+if getOption('crashpad.with_stacktrace', False):
+    crashpad_options.append('-DCRASHPAD_ENABLE_STACKTRACE=ON')
+    crashpad_pkgs.update({
+        UBUNTU_LIKE: ['libunwind-dev'],
+        REDHAT_LIKE: ['libunwind-devel'],
+    })
+else:
+    crashpad_options.append('-DCRASHPAD_ENABLE_STACKTRACE=OFF')
+
+# the fork's crashpad-config.cmake is broken with the system zlib, crashpad/CMakeLists.txt builds the fork with
+# add_subdirectory() and installs a fixed one
+crashpad_wrapperProject = findAsset('crashpad', 'CMakeLists.txt')
+if crashpad_wrapperProject is None:
+    abort('crashpad: unable to find crashpad/CMakeLists.txt')
+crashpad_options.append('-DCRASHPAD_SOURCE_DIR={srcdir_posix}')
+
+ARTIFACTS += [
+    CMakeBuildArtifact('crashpad', crashpad_deps,
+        stdGitSourceFromOptions('crashpad', 'https://github.com/getsentry/crashpad.git', 'getsentry'),
+        cmakeOpts=crashpad_options,
+        cmakeProjectDir=crashpad_wrapperProject[:-len('CMakeLists.txt')],
+        pkgs=crashpad_pkgs,
+        provides=['crashpad-artifact'],
+        toolchainArtifacts='c,c++'
+    ),
+]

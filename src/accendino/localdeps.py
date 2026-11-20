@@ -495,7 +495,7 @@ def getPkgManager(distribId, packagesToCheck, cacheDir: T.Optional[str] = None):
     if distribId in ('Ubuntu', 'Debian', ):
         name = 'dpkg'
         managers[''] = DpkgManager()
-    elif distribId in ('Fedora', 'RedHat', ):
+    elif distribId in ('Fedora', 'Redhat', ):
         name = 'rpm'
         managers[''] = RpmManager()
     elif distribId in ('Windows',):

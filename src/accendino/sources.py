@@ -45,7 +45,8 @@ class LocalSource(Source):
 
         if self.symlink:
             logging.debug(f"==> linking {self.srcdir} to {target_dir}")
-            os.symlink(os.path.abspath(self.srcdir), target_dir)
+            # target_is_directory is needed on Windows, ignored elsewhere
+            os.symlink(os.path.abspath(self.srcdir), target_dir, target_is_directory=True)
             self.refreshed = True
             return True
 
