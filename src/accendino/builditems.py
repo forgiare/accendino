@@ -519,10 +519,16 @@ class BuildArtifact(DepsBuildArtifact):
                 lastDir = path
 
     def needsRebuildFromDepsUpdates(self, config):
-        if not self.builtFile or not os.path.exists(self.builtFile):
+        # compared with our last build, or with our last prepare when the build failed since: a dependency
+        # rebuilt after it must be seen by a new prepare (like meson caching the dependencies it found)
+        if self.builtFile and os.path.exists(self.builtFile):
+            reference = self.builtFile
+        elif self.prepareStateFile and os.path.exists(self.prepareStateFile):
+            reference = self.prepareStateFile
+        else:
             return False
 
-        self_mtime = os.stat(self.builtFile).st_mtime
+        self_mtime = os.stat(reference).st_mtime
 
         for dep in self.deps:
             artifact = config.getBuildItem(dep)
@@ -537,13 +543,7 @@ class BuildArtifact(DepsBuildArtifact):
     def prepare(self, config) -> bool:
         os.makedirs(self.buildDir, exist_ok=True)
 
-        if self.needsRebuildFromDepsUpdates(config):
-            # some of our deps have been updated, let's rebuild
-            if os.path.exists(self.prepareStateFile):
-                os.remove(self.prepareStateFile)
-
-            if os.path.exists(self.builtFile):
-                os.remove(self.builtFile)
+        depsUpdated = self.needsRebuildFromDepsUpdates(config)
 
         (env, xkeys) = self._computeEnv(config, self.extraEnv, config.debug)
 
@@ -551,6 +551,7 @@ class BuildArtifact(DepsBuildArtifact):
         dump.env = env.copy()
         dump.args = self.prepare_cmds if self.prepareDumpCmds is None else self.prepareDumpCmds
 
+        # read before a deps update drops it: the settings may have changed too
         dumpOnDisk = None
         if os.path.exists(self.prepareStateFile):
             try:
@@ -559,14 +560,19 @@ class BuildArtifact(DepsBuildArtifact):
             except:
                 logging.info(f"prepare state file {self.prepareStateFile} exists but we couldn't read it")
 
-        if dumpOnDisk and dump == dumpOnDisk:
+        if depsUpdated:
+            # some of our deps have been updated, let's rebuild
+            if os.path.exists(self.prepareStateFile):
+                os.remove(self.prepareStateFile)
+        elif dumpOnDisk and dump == dumpOnDisk:
             logging.debug(f"{self.name} is already prepared")
             return True
 
         if os.path.exists(self.builtFile):
             os.remove(self.builtFile)
 
-        self.beforePrepare(config, dumpOnDisk is not None)
+        settingsChanged = dumpOnDisk is not None and not dump == dumpOnDisk
+        self.beforePrepare(config, settingsChanged)
 
         scriptBuilder = self._createPrepareFileWin32 if self.machine.distribId in ('Windows',) else self._createPrepareFileUnix
         scriptBuilder(config, env, xkeys)
