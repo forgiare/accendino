@@ -427,7 +427,7 @@ class BuildArtifact(DepsBuildArtifact):
         with open(self.logFile, "at", encoding='utf8') as flog:
             ok = self.srcObj.checkout(self.sourceDir, flog, config.refreshSources)
 
-        if ok and config.refreshSources and self.srcObj.refreshed:
+        if ok and ((config.refreshSources and self.srcObj.refreshed) or self.srcObj.replaced):
             logging.info(f'source of {self.name} was refreshed, forcing a rebuild')
             for f in (self.prepareStateFile, self.builtFile):
                 if f and os.path.exists(f):

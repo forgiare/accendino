@@ -18,6 +18,9 @@ class Source:
         # tells if the last checkout() actually changed the content of the source tree
         # (freshly cloned/copied, or refreshed to a different revision)
         self.refreshed = False
+        # the source tree was replaced by another one (like a symlink to another directory): the
+        # artifact must be rebuilt even without --refreshSources
+        self.replaced = False
 
 
 class LocalSource(Source):
@@ -34,6 +37,27 @@ class LocalSource(Source):
 
     def checkout(self, target_dir: str, _flog, _refresh: bool = False) -> bool:
         self.refreshed = False
+        self.replaced = False
+
+        if self.symlink and os.path.islink(target_dir):
+            current = os.path.normcase(os.path.realpath(target_dir))
+            wanted = os.path.normcase(os.path.realpath(self.srcdir))
+            if current == wanted:
+                logging.debug(f"==> refreshing dir {target_dir}")
+                return True
+
+            # srcdir has changed (or the link is dangling): link to the new tree
+            logging.info(f"==> {target_dir} now links to {self.srcdir} (was {os.readlink(target_dir)})")
+            try:
+                os.unlink(target_dir)
+            except (IsADirectoryError, PermissionError):
+                # a directory symlink on Windows
+                os.rmdir(target_dir)
+            os.symlink(os.path.abspath(self.srcdir), target_dir, target_is_directory=True)
+            self.refreshed = True
+            self.replaced = True
+            return True
+
         if os.path.exists(target_dir):
             if not self.symlink and os.path.islink(target_dir):
                 logging.error(f"{target_dir} is a symlink, but we should do a hardcopy of the source tree" +
