@@ -2,6 +2,7 @@ import os
 import subprocess
 import pickle
 import shutil
+import sys
 import pathlib
 import typing as T
 import urllib.request
@@ -437,7 +438,11 @@ class BuildArtifact(DepsBuildArtifact):
 
     def showLogs(self, header) -> None:
         logging.error(header)
-        print (open(self.logFile, "rt", encoding='utf8').read())
+        # the tools don't always write UTF-8 (MSVC uses the console code page), nor can the console show everything
+        with open(self.logFile, "rt", encoding="utf8", errors="replace") as f:
+            content = f.read()
+        encoding = sys.stdout.encoding or 'utf8'
+        print(content.encode(encoding, errors='replace').decode(encoding))
 
     def showLogOnError(self, retcode) -> bool:
         if retcode != 0:
