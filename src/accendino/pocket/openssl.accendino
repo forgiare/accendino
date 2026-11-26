@@ -60,8 +60,24 @@ if openssl_fromSources:
 
     include('zlib')
 
+    openssl_artifactClass = CustomCommandBuildArtifact
+    if distribId == 'Windows' and targetDistribId == 'Windows':
+        class OpensslMsvcBuildArtifact(CustomCommandBuildArtifact):
+            ''' the nmake install_sw target doesn't install the generated pkg-config files '''
+
+            def setMakeNinjaCommands(self, config, *args, **kwargs):
+                super().setMakeNinjaCommands(config, *args, **kwargs)
+                pcDir = '{prefix}/{libdir}/pkgconfig'
+                self.build_cmds += [
+                    (['cmake', '-E', 'make_directory', pcDir], '{builddir}', 'creating the pkg-config directory'),
+                    (['cmake', '-E', 'copy', 'exporters/libcrypto.pc', 'exporters/libssl.pc', 'exporters/openssl.pc', pcDir],
+                     '{builddir}', 'installing the pkg-config files'),
+                ]
+
+        openssl_artifactClass = OpensslMsvcBuildArtifact
+
     ARTIFACTS += [
-        CustomCommandBuildArtifact('openssl', ['zlib-artifact'],
+        openssl_artifactClass('openssl', ['zlib-artifact'],
             GitSource('https://github.com/openssl/openssl.git', 'openssl-3.4.1'),
             prepare_cmds=[
                 prepareCmd

@@ -42,7 +42,9 @@ set(LIBWEBRTC_EXPORTED_DEFINES RTC_DESKTOP_DEVICE)
 install(DIRECTORY "${LIBWEBRTC_DIST_DIR}/include/" DESTINATION "${_LIBWEBRTC_INCLUDE_DEST}")
 
 if(WIN32)
-  list(APPEND LIBWEBRTC_EXPORTED_DEFINES LIB_WEBRTC_API_DLL)
+  # the headers test WIN32 (or _WINDOWS), that CMake adds to MSVC builds but not MSVC itself (only _WIN32): without
+  # it they fall back to GCC atomic builtins and visibility attributes, like for consumers built with meson
+  list(APPEND LIBWEBRTC_EXPORTED_DEFINES LIB_WEBRTC_API_DLL WIN32)
   install(FILES "${LIBWEBRTC_DIST_DIR}/lib/libwebrtc.dll" DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(FILES "${LIBWEBRTC_DIST_DIR}/lib/libwebrtc.dll.lib" DESTINATION "${CMAKE_INSTALL_LIBDIR}")
   set(_LIBWEBRTC_LOCATION_PROPS

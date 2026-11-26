@@ -786,7 +786,9 @@ class CMakeBuildArtifact(BuildArtifact):
                                buildMachineOnly=buildMachineOnly)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
-        self.cmakeProjectDir = cmakeProjectDir
+        # no trailing separator: powershell quotes the arguments with spaces, and a backslash before the closing
+        # quote escapes it (findAsset() paths under C:\Program Files)
+        self.cmakeProjectDir = cmakeProjectDir.rstrip('/\\') or cmakeProjectDir
 
     def prepare(self, config) -> bool:
         cmakeBuildType = config.cmakeBuildType(self.buildType)
