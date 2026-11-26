@@ -19,6 +19,11 @@ class Test(unittest.TestCase):
                       'C28FC6F98A2C44ABBBD89D6A3037D0D9_POSIX_FD_STATE': 'AAAAAAACAgA='})
         self.assertEqual(a, b)
 
+    def testPowershellExecutionPolicy(self):
+        a = makeDump({'PATH': 'C:\\bin'})
+        b = makeDump({'PATH': 'C:\\bin', 'PSExecutionPolicyPreference': 'Bypass'})
+        self.assertEqual(a, b)
+
     def testOtherVariablesChecked(self):
         a = makeDump({'PATH': 'C:\\bin'})
         b = makeDump({'PATH': 'C:\\other'})

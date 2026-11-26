@@ -18,6 +18,8 @@ VOLATILE_ENV_VARS = {
     'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
     'PWD', 'OLDPWD', 'SHLVL', '_', 'TERM_SESSION_ID', 'WINDOWID', 'XDG_SESSION_ID',
     'SESSIONNAME', 'CLIENTNAME',
+    # set by powershell -ExecutionPolicy for its child processes
+    'PSEXECUTIONPOLICYPREFERENCE',
 }
 
 # same, for variables whose name is prefixed by a per-session id, like the <id>_POSIX_FD_STATE set
@@ -25,7 +27,8 @@ VOLATILE_ENV_VARS = {
 VOLATILE_ENV_SUFFIXES = ('_POSIX_FD_STATE',)
 
 def isVolatileEnvVar(name: str) -> bool:
-    if name in VOLATILE_ENV_VARS:
+    # environment variable names are case insensitive on Windows
+    if name in VOLATILE_ENV_VARS or name.upper() in VOLATILE_ENV_VARS:
         return True
     return name.upper().endswith(VOLATILE_ENV_SUFFIXES)
 
