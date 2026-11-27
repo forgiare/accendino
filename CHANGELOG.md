@@ -1,6 +1,6 @@
 # _Accendino_ changelog
 
-## 0.6.4-rc1
+## 0.6.4
 
 ### New features
 
