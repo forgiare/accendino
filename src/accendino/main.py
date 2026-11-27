@@ -195,6 +195,12 @@ ARCHS_MAP = {
 # the list of tools used by a run, in the tools directory
 TOOLS_MANIFEST = 'accendino-tools.txt'
 
+def splitSearchPath(value: str, sep: str = os.pathsep) -> T.List[str]:
+    ''' splits a PATH like list of directories (ACCENDINO_PATH) with the platform separator: ';' on Windows, where
+        paths contain a drive letter, ':' elsewhere. Empty entries are dropped '''
+    return [p for p in value.split(sep) if p]
+
+
 class AccendinoConfig:
     ''' Accendino configuration '''
 
@@ -246,7 +252,7 @@ class AccendinoConfig:
         # populate a search path that has:
         #   * first paths provided in ACCENDINO_PATH,
         #   * then in the accendino pocket
-        self.pocketSearchPaths = os.environ.get('ACCENDINO_PATH', '').split(':') + [ self.pocketDir ]
+        self.pocketSearchPaths = splitSearchPath(os.environ.get('ACCENDINO_PATH', '')) + [ self.pocketDir ]
 
         self.sources = []
         self.targetEval = Evaluation()

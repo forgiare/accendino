@@ -39,8 +39,9 @@ _Accendino_ accepts the following command line arguments:
   [Platform packages](#platform-packages)
 * `<accendino file>`: the name of the root _Accendino_ file to load
 
-_Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like period separated string of location where
-to search for accendino source files.
+_Accendino_ uses the `ACCENDINO_PATH` env variable that contains a PATH like list of directories where to search for
+accendino source files, separated like `PATH` on the platform: `;` on Windows (`C:\recipes;D:\more-recipes`), `:`
+elsewhere.
 
 ## Accendino workflow
 
@@ -68,9 +69,19 @@ Here's the steps performed by _Accendino_ when building:
     * checkout the source code of the build artifact
     * run commands to prepare the source directory
     * run commands to prepare the build directory, unless the commands and the environment are the same as the
-      ones of the previous run (they're saved in `accendino.prepared` in the build directory)
+      ones of the previous run (they're saved in `accendino.prepared` in the build directory) and none of its
+      dependencies was rebuilt since. Environment variables that change from one session to another without any
+      impact on the build are ignored in this comparison (`SSH_CONNECTION`, `PWD`, `SHLVL`, the `<id>_POSIX_FD_STATE`
+      of Win32-OpenSSH, the `PSExecutionPolicyPreference` set by `powershell -ExecutionPolicy`, ...), so a new SSH
+      connection or another shell doesn't rebuild everything. When the build of an artifact failed, its dependencies
+      are compared with its last prepare: fixing and rebuilding a dependency prepares it again
     * build and install, unless the artifact was already built (`accendino.built` in the build directory) and none
       of its dependencies was rebuilt since
+
+Meson artifacts restart from an empty build directory when their environment or their options changed since the last
+prepare, or when the last configure failed: `meson --reconfigure` keeps the programs found by the first configure
+(compilers, pkg-config, ...) and ignores the environment selecting other ones. Other builders reuse their build
+directory.
 
 If a `--resume-from` argument is given we start the build plan from the provided build artifact. `--refresh` forces
 the rebuild of the requested targets, and `--refreshSources` the rebuild of the artifacts whose git sources changed;
@@ -234,10 +245,12 @@ Some examples:
 
 `Source` objects are invoked to checkout your code, we have these available:
 
-* `GitSource(url: str, branch: str, depth: int = 1, shallow_submodules: bool = False, recurse_submodules: bool = False)` : a source that checks out the code from `git`.
+* `GitSource(url: str, branch: str, depth: int = 1, shallow_submodules: bool = True, recurse_submodules: bool = False)` : a source that checks out the code from `git`.
     Parameters mimick the `git` command line arguments;
 * `LocalSource(srcdir : str, do_symlink : bool = False)` : a source that uses code stored in a local directory. If `do_symlink` is true, the code is just symlinked
-    in the _Accendino_ sources directory, otherwise the whole source tree is copied;
+    in the _Accendino_ sources directory, otherwise the whole source tree is copied. When `srcdir` changes (in the build options file for instance), the
+    symlink is replaced to point to the new directory and the artifact is rebuilt. Changes made in the linked tree are not detected, use `--refresh` to
+    rebuild after editing it;
 * `RemoteArchiveSource(url: str, saveAs: str = None, compression_method: str = 'guess', strip_depth: int = 0, checked_file: str = 'aclocal.m4)`: sources
     contained in a remote archive. The archive will be downloaded and then decompressed. `strip_depth` allows to strip the version directory if any (like if the archive expands
     to `libressl-1.4.2/...`), it works for tar and zip archives;
@@ -274,6 +287,10 @@ So for instance :
 
 You can also use alternative installations using the `|` separator and give this way the search order. So for instance `choco/nasm|path/nasm.exe` means
 "check that the nasm package of chocolatey, and then nasm.exe in the PATH, and if not found then install nasm from chocolatey"
+
+For native Windows builds `PKG_CONFIG_LIBDIR` and `PKG_CONFIG_PATH` are `;` separated (the paths contain `C:`), and
+`MesonBuildArtifact` requires `choco/pkgconfiglite|path/pkg-config.exe`: meson refuses the `pkg-config` of Strawberry
+Perl, that is often found first in the PATH, so `PKG_CONFIG` is set to the `pkg-config.exe` found.
 
 
 
@@ -332,6 +349,37 @@ Specific build artifacts objects and their signatures:
     target machine (`x86_64-pc-windows-gnu`, `wasm32-unknown-emscripten`, ...), added to the rustup toolchain when needed
 * `QtInstaller(name: str, deps=[], flavor=6, version='latest', modules=[], provides=[], pkgs={}, aqtArch=None, aqtVersion='3.3.0')`:
     Qt, see [Qt](#qt)
+
+### Customizing build artifacts
+
+An accendino file can subclass a build artifact class to adjust what it does. These methods are meant to be overridden:
+
+* `exportedEnv(self, config) -> Dict[str, str]`: environment variables given to the artifacts depending on this one
+  (directly or not). The values of PATH like variables (`PATH`, `CMAKE_PREFIX_PATH`, `PKG_CONFIG_LIBDIR`, ...) are
+  prepended to the existing ones. That's how an aqt installed Qt is found by its users;
+* `beforePrepare(self, config, settingsChanged: bool) -> None`: called when the prepare commands are about to run,
+  `settingsChanged` is `True` when the environment or the commands differ from the ones of the last prepare. That's
+  where `MesonBuildArtifact` cleans its build directory;
+* the methods filling `prepare_cmds` and `build_cmds`, for instance `setMakeNinjaCommands()` for
+  `CustomCommandBuildArtifact`. Commands are `(args, workingDir, description)` tuples, using the
+  [format strings](#build-artifacts) above.
+
+The accendino file is executed with its own namespace: the methods of a class defined there don't see the names it
+defines or that _Accendino_ injects (`logging`, the artifact classes, `getOption()`, ...). Use `super()` to call the
+parent class, `self` for the artifact settings, and import the modules you need in the method. For instance
+`openssl.accendino` installs the pkg-config files that `nmake install_sw` doesn't:
+
+```python
+class OpensslMsvcBuildArtifact(CustomCommandBuildArtifact):
+    def setMakeNinjaCommands(self, config, *args, **kwargs):
+        super().setMakeNinjaCommands(config, *args, **kwargs)
+        pcDir = '{prefix}/{libdir}/pkgconfig'
+        self.build_cmds += [
+            (['cmake', '-E', 'make_directory', pcDir], '{builddir}', 'creating the pkg-config directory'),
+            (['cmake', '-E', 'copy', 'exporters/libcrypto.pc', 'exporters/libssl.pc', 'exporters/openssl.pc', pcDir],
+             '{builddir}', 'installing the pkg-config files'),
+        ]
+```
 
 ### Qt
 

@@ -1,5 +1,47 @@
 # _Accendino_ changelog
 
+## 0.6.4-rc1
+
+### New features
+
+* added an `emscripten` target (`--targetDistrib=emscripten`): cross compiles to WebAssembly with emsdk, taken from `$EMSDK` or installed in the tools directory, and builds FreeRDP's SDL3 client
+* cross compiling for the other macOS architecture (`--targetArch=x86_64` on Apple Silicon, `--targetArch=arm64` on Intel); `arm64` is now a supported arch
+* artifacts can declare `toolDeps` (programs run during their build, like `protoc` or `wayland-scanner`): when cross compiling they are built for the build machine as `native:<name>` artifacts, installed in `--buildToolsPrefix` with `--buildToolchain`
+* added a `Machine` object holding the build target settings (distrib, arch, toolchain, prefix, libdir, cross file)
+* added `QtInstaller()` to get Qt 5 or 6 from the platform packages or installed with aqtinstall in the tools directory
+* artifacts can export environment variables to the ones depending on them (`exportedEnv()`)
+* added `CargoBuildArtifact` to build rust crates (`cargo install`, or `cargo-c` for C API libraries), with rust from the platform packages or a rustup toolchain in the tools directory
+* added a GitHub action (`action.yml`) building the targets of an accendino file, with caching of the tools directory, ccache and platform packages
+* added `--ccache` to compile through ccache, `--pruneTools` to remove the unused tools from the tools directory, and `--cachePackage=<dir>` to keep the installed platform packages in a cache (dpkg only for now)
+* added `--build-as-debug=<artifacts>` to build the given artifacts in debug mode whatever the build type
+* with `--no-packages` the default toolchain is picked from the compilers found in the PATH
+* added accendino files for `cef`, `crashpad`, `curl`, `psl`, `cwalk`, `dav1d`, `iconv`, `libjuice`, `libwebrtc`, `libwebrtc-c`, `libxml2`, `xerces`, `msix-packaging`, `msix-packaging-c`, `protobuf` and `protobuf-c`
+* FreeRDP can be built with `cwalk` and `dav1d`
+
+### Fixes
+
+* fixed pkg-config for native Windows builds: `PKG_CONFIG_LIBDIR`/`PKG_CONFIG_PATH` are `;` separated, and meson artifacts use `pkgconfiglite` (meson refuses Strawberry Perl's pkg-config)
+* meson builds restart from a clean build directory when their settings changed, as `meson --reconfigure` keeps the programs it found first
+* an artifact whose build failed is prepared again when one of its dependencies was rebuilt since
+* environment variables that change between sessions (`<id>_POSIX_FD_STATE` of Win32-OpenSSH, `PSExecutionPolicyPreference` of PowerShell, ...) don't trigger rebuilds anymore
+* `ACCENDINO_PATH` is split with the platform separator (`;` on Windows), it was always split on `:`, breaking Windows paths
+* fixed `LocalSource` symlinks on Windows, and re-link them (and rebuild) when their source directory changes
+* build logs that are not UTF-8, or that the console can't print, are shown instead of raising an exception
+* fixed `cmakeProjectDir` with a trailing separator under a path with spaces on Windows (powershell quoting)
+* fixed the `protobuf-c`, `libusb`, `openssl` and `libwebrtc` accendino files for MSVC (runtime library, missing `.pc` files, `WIN32` define)
+* fixed detection of RHEL clones like Rocky Linux from `/etc/os-release`
+* fixed the MSVC toolchain activation with environment variables whose value contains `=`
+* fixed the concurrent jobs arguments of cmake and meson artifacts, and cmake installs with the release type
+* fixed an empty checkout directory after a failed git clone
+* fixed `fido2` and FFmpeg linking under Windows, and FreeRDP builds with SDL2 or SDL3 disabled
+* the files in subdirectories of the pocket recipe assets are packaged
+* `pyproject.toml` uses a SPDX license expression (AGPL-3.0-only)
+
+## 0.6.3
+
+* fixed the checkout of `LocalSource` and `RemoteArchiveSource` sources, that failed with a `TypeError` in 0.6.2: the
+  `refresh` parameter of their `checkout()` was renamed by pylint fixes while it was still passed by name
+
 ## 0.6.2
 
 * fixed toolchain detection on MacOsX: it was identified as `Gcc` by default while `cc`/`gcc` are actually aliases for `clang`
