@@ -1,6 +1,8 @@
 import os
 import subprocess
 import pickle
+import shutil
+import sys
 import pathlib
 import typing as T
 import urllib.request
@@ -8,7 +10,7 @@ import urllib.request
 from zenlog import log as logging
 from accendino.sources import Source
 from accendino.utils import mergePkgDeps, treatPackageDeps, doCrossDeps, RunInShell, as_msys2_path, \
-    pkgConfigDirs
+    pkgConfigDirs, pkgConfigPathSep
 
 
 # environment variables that change from one shell session to another (typically a new SSH
@@ -17,7 +19,19 @@ VOLATILE_ENV_VARS = {
     'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
     'PWD', 'OLDPWD', 'SHLVL', '_', 'TERM_SESSION_ID', 'WINDOWID', 'XDG_SESSION_ID',
     'SESSIONNAME', 'CLIENTNAME',
+    # set by powershell -ExecutionPolicy for its child processes
+    'PSEXECUTIONPOLICYPREFERENCE',
 }
+
+# same, for variables whose name is prefixed by a per-session id, like the <id>_POSIX_FD_STATE set
+# by Win32-OpenSSH
+VOLATILE_ENV_SUFFIXES = ('_POSIX_FD_STATE',)
+
+def isVolatileEnvVar(name: str) -> bool:
+    # environment variable names are case insensitive on Windows
+    if name in VOLATILE_ENV_VARS or name.upper() in VOLATILE_ENV_VARS:
+        return True
+    return name.upper().endswith(VOLATILE_ENV_SUFFIXES)
 
 class BuildStepDump:
     def __init__(self):
@@ -31,7 +45,9 @@ class BuildStepDump:
 
         # check environment
         keys = set(self.env.keys()) | set(other.env.keys())
-        for k in keys - VOLATILE_ENV_VARS:
+        for k in keys:
+            if isVolatileEnvVar(k):
+                continue
             if self.env.get(k, None) != other.env.get(k, None):
                 logging.debug(f'environment variable {k} has changed since last prepare')
                 return False
@@ -235,9 +251,14 @@ class BuildArtifact(DepsBuildArtifact):
             if k in ('PATH', 'CMAKE_PREFIX_PATH',):
                 self._updatePATHlike(config, base, k, v.split(os.pathsep), sep=os.pathsep)
             elif k in ('PKG_CONFIG_PATH', 'PKG_CONFIG_LIBDIR',):
-                self._updatePATHlike(config, base, k, v.split(':'))
+                sep = self._pkgConfigSep()
+                self._updatePATHlike(config, base, k, v.split(sep), sep=sep)
             else:
                 base[k] = v
+
+    def _pkgConfigSep(self) -> str:
+        ''' the separator of the PKG_CONFIG_PATH / PKG_CONFIG_LIBDIR lists for the pkg-config of this artifact '''
+        return pkgConfigPathSep(self.machine.distribId, self.needsMsys2)
 
     def _computeEnv(self, config, extra: T.Dict[str, str], createEnvFile: bool=False) -> T.Tuple[T.Dict[str, str], T.List[str]]:
         r = os.environ.copy()
@@ -264,8 +285,9 @@ class BuildArtifact(DepsBuildArtifact):
 
         # add a PKG_CONFIG_LIBDIR
         xkeys.append('PKG_CONFIG_LIBDIR')
-        pkg_config_path = ':'.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
-                                                 orig_pkg_config_path, self.machine.crossCompilation))
+        pkgConfigSep = self._pkgConfigSep()
+        pkg_config_path = pkgConfigSep.join(pkgConfigDirs('{prefix_posix}', '{libdir}', self.machine.targetDistrib, self.machine.arch,
+                                                          orig_pkg_config_path, self.machine.crossCompilation, pkgConfigSep))
 
         xx = {
             'PKG_CONFIG_LIBDIR': pkg_config_path,
@@ -405,7 +427,7 @@ class BuildArtifact(DepsBuildArtifact):
         with open(self.logFile, "at", encoding='utf8') as flog:
             ok = self.srcObj.checkout(self.sourceDir, flog, config.refreshSources)
 
-        if ok and config.refreshSources and self.srcObj.refreshed:
+        if ok and ((config.refreshSources and self.srcObj.refreshed) or self.srcObj.replaced):
             logging.info(f'source of {self.name} was refreshed, forcing a rebuild')
             for f in (self.prepareStateFile, self.builtFile):
                 if f and os.path.exists(f):
@@ -416,7 +438,11 @@ class BuildArtifact(DepsBuildArtifact):
 
     def showLogs(self, header) -> None:
         logging.error(header)
-        print (open(self.logFile, "rt", encoding='utf8').read())
+        # the tools don't always write UTF-8 (MSVC uses the console code page), nor can the console show everything
+        with open(self.logFile, "rt", encoding="utf8", errors="replace") as f:
+            content = f.read()
+        encoding = sys.stdout.encoding or 'utf8'
+        print(content.encode(encoding, errors='replace').decode(encoding))
 
     def showLogOnError(self, retcode) -> bool:
         if retcode != 0:
@@ -493,10 +519,16 @@ class BuildArtifact(DepsBuildArtifact):
                 lastDir = path
 
     def needsRebuildFromDepsUpdates(self, config):
-        if not self.builtFile or not os.path.exists(self.builtFile):
+        # compared with our last build, or with our last prepare when the build failed since: a dependency
+        # rebuilt after it must be seen by a new prepare (like meson caching the dependencies it found)
+        if self.builtFile and os.path.exists(self.builtFile):
+            reference = self.builtFile
+        elif self.prepareStateFile and os.path.exists(self.prepareStateFile):
+            reference = self.prepareStateFile
+        else:
             return False
 
-        self_mtime = os.stat(self.builtFile).st_mtime
+        self_mtime = os.stat(reference).st_mtime
 
         for dep in self.deps:
             artifact = config.getBuildItem(dep)
@@ -511,13 +543,7 @@ class BuildArtifact(DepsBuildArtifact):
     def prepare(self, config) -> bool:
         os.makedirs(self.buildDir, exist_ok=True)
 
-        if self.needsRebuildFromDepsUpdates(config):
-            # some of our deps have been updated, let's rebuild
-            if os.path.exists(self.prepareStateFile):
-                os.remove(self.prepareStateFile)
-
-            if os.path.exists(self.builtFile):
-                os.remove(self.builtFile)
+        depsUpdated = self.needsRebuildFromDepsUpdates(config)
 
         (env, xkeys) = self._computeEnv(config, self.extraEnv, config.debug)
 
@@ -525,6 +551,7 @@ class BuildArtifact(DepsBuildArtifact):
         dump.env = env.copy()
         dump.args = self.prepare_cmds if self.prepareDumpCmds is None else self.prepareDumpCmds
 
+        # read before a deps update drops it: the settings may have changed too
         dumpOnDisk = None
         if os.path.exists(self.prepareStateFile):
             try:
@@ -533,12 +560,19 @@ class BuildArtifact(DepsBuildArtifact):
             except:
                 logging.info(f"prepare state file {self.prepareStateFile} exists but we couldn't read it")
 
-        if dumpOnDisk and dump == dumpOnDisk:
+        if depsUpdated:
+            # some of our deps have been updated, let's rebuild
+            if os.path.exists(self.prepareStateFile):
+                os.remove(self.prepareStateFile)
+        elif dumpOnDisk and dump == dumpOnDisk:
             logging.debug(f"{self.name} is already prepared")
             return True
 
         if os.path.exists(self.builtFile):
             os.remove(self.builtFile)
+
+        settingsChanged = dumpOnDisk is not None and not dump == dumpOnDisk
+        self.beforePrepare(config, settingsChanged)
 
         scriptBuilder = self._createPrepareFileWin32 if self.machine.distribId in ('Windows',) else self._createPrepareFileUnix
         scriptBuilder(config, env, xkeys)
@@ -559,6 +593,10 @@ class BuildArtifact(DepsBuildArtifact):
             return True
 
         return False
+
+    def beforePrepare(self, _config, _settingsChanged: bool) -> None:
+        ''' called when the prepare commands are going to run, settingsChanged is True when the environment or the
+            commands differ from the ones of the last successful prepare '''
 
     def createBuiltFile(self) -> bool:
         try:
@@ -748,7 +786,9 @@ class CMakeBuildArtifact(BuildArtifact):
                                buildMachineOnly=buildMachineOnly)
         self.cmakeOpts = cmakeOpts
         self.parallelJobs = parallelJobs
-        self.cmakeProjectDir = cmakeProjectDir
+        # no trailing separator: powershell quotes the arguments with spaces, and a backslash before the closing
+        # quote escapes it (findAsset() paths under C:\Program Files)
+        self.cmakeProjectDir = cmakeProjectDir.rstrip('/\\') or cmakeProjectDir
 
     def prepare(self, config) -> bool:
         cmakeBuildType = config.cmakeBuildType(self.buildType)
@@ -948,6 +988,8 @@ class MesonBuildArtifact(BuildArtifact):
         extra = {
             'Ubuntu|Debian|Redhat|Fedora': ['ninja-build'],
             'Arch|FreeBSD|Darwin': ['ninja'],
+            # meson refuses the pkg-config of Strawberry Perl (pkg-config.bat), the only one usually in the PATH
+            'Windows': ['choco/pkgconfiglite|path/pkg-config.exe'],
         }
 
         crossDeps = ['ninja-build']
@@ -971,6 +1013,12 @@ class MesonBuildArtifact(BuildArtifact):
     def init(self, config) -> bool:
         if not BuildArtifact.init(self, config):
             return False
+
+        # meson finds the pkg-config Perl script of Strawberry Perl before a real pkg-config.exe and refuses it
+        if self.machine.distribId == 'Windows' and 'PKG_CONFIG' not in self.extraEnv and 'PKG_CONFIG' not in os.environ:
+            pkgConfig = shutil.which('pkg-config.exe')
+            if pkgConfig:
+                self.extraEnv = {**self.extraEnv, 'PKG_CONFIG': pkgConfig}
 
         if self.mesonVersion == 'system':
             return True
@@ -1054,10 +1102,6 @@ class MesonBuildArtifact(BuildArtifact):
         ]
         self.prepareDumpCmds = self.prepare_cmds[:]
 
-        # meson keeps the found dependencies when reconfiguring, look them up again (a dependency may have been rebuilt)
-        if os.path.exists(self.buildDir / 'meson-info'):
-            self.prepare_cmds.insert(0, ([self.mesonPath, 'configure', '--clearcache'], '{builddir}', 'clearing meson cache'))
-
         concurrentArgs = ['-j', '1']
         if self.parallelJobs:
             concurrentArgs = ['-j', f'{config.maxJobs}'] if config.maxJobs else []
@@ -1068,6 +1112,28 @@ class MesonBuildArtifact(BuildArtifact):
         ]
 
         return BuildArtifact.prepare(self, config)
+
+    def beforePrepare(self, _config, settingsChanged: bool) -> None:
+        mesonPrivate = self.buildDir / 'meson-private'
+        if os.path.exists(mesonPrivate):
+            # meson --reconfigure keeps the programs (compilers, pkg-config, ...) found by the first configure and ignores
+            # the environment variables selecting other ones, so restart from an empty build directory when the
+            # environment or the options have changed, or when the last configure failed (no build.dat)
+            if settingsChanged or not os.path.exists(mesonPrivate / 'build.dat'):
+                logging.debug(f'cleaning the meson build directory {self.buildDir}')
+                for entry in os.scandir(self.buildDir):
+                    # the log and the native file (already written for this configure) are ours
+                    if entry.name in ('build.log', 'accendino-native.ini'):
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        shutil.rmtree(entry.path)
+                    else:
+                        os.remove(entry.path)
+                return
+
+        # meson keeps the found dependencies when reconfiguring, look them up again (a dependency may have been rebuilt)
+        if os.path.exists(self.buildDir / 'meson-info'):
+            self.prepare_cmds.insert(0, ([self.mesonPath, 'configure', '--clearcache'], '{builddir}', 'clearing meson cache'))
 
 
 RUST_ARCHS = {

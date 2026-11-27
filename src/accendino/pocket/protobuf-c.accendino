@@ -36,10 +36,18 @@ if protobuf_c_fromSources:
         # protobuf is built static on Windows, protobuf-c's CMake expects both to match with MSVC. Tools are static.
         protobuf_c_shared = 'OFF' if buildingTools or targetDistribId == 'Windows' else 'ON'
 
+        protobuf_c_opts = ['-DBUILD_PROTOC=ON', '-DBUILD_TESTS=OFF', f'-DBUILD_SHARED_LIBS={protobuf_c_shared}']
+        protobuf_c_projectDir = '{srcdir}/build-cmake'
+        if targetDistribId == 'Windows':
+            # the static build forces the static MSVC runtime, the wrapper project switches it to the DLL one like
+            # protobuf (protobuf_MSVC_STATIC_RUNTIME=OFF)
+            protobuf_c_projectDir = findAsset('protobuf-c', 'CMakeLists.txt')[:-len('CMakeLists.txt')]
+            protobuf_c_opts.append('-DPROTOBUF_C_SOURCE_DIR={srcdir_posix}')
+
         ARTIFACTS += [
             CMakeBuildArtifact('protobuf-c', ['protobuf-artifact'], protobuf_c_src,
-                cmakeOpts=['-DBUILD_PROTOC=ON', '-DBUILD_TESTS=OFF', f'-DBUILD_SHARED_LIBS={protobuf_c_shared}'],
-                cmakeProjectDir='{srcdir}/build-cmake',
+                cmakeOpts=protobuf_c_opts,
+                cmakeProjectDir=protobuf_c_projectDir,
                 provides=['protobuf-c-artifact'],
                 toolchainArtifacts='c,c++',
             )

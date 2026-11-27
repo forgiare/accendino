@@ -4,7 +4,7 @@ import unittest
 from accendino.machine import Machine
 from accendino.toolchain import CROSS_FILE_DIR, ClangToolChain, DefaultToolChain, EmscriptenToolChain, GccToolChain, \
     MingwToolChain
-from accendino.utils import getArchLibDir, pkgConfigDirs
+from accendino.utils import getArchLibDir, pkgConfigDirs, pkgConfigPathSep
 
 class Test(unittest.TestCase):
 
@@ -84,6 +84,12 @@ class Test(unittest.TestCase):
         self.assertEqual(pkgConfigDirs('/p', 'lib', 'Ubuntu', 'x86_64', None),
                          ['/p/lib/pkgconfig', '/p/share/pkgconfig', '/p/lib/x86_64-linux-gnu/pkgconfig',
                           '/usr/lib/x86_64-linux-gnu/pkgconfig', '/usr/share/pkgconfig'])
+        # MSVC: no system directory, the user's PKG_CONFIG_PATH is ';' separated
+        self.assertEqual(pkgConfigDirs('C:/p', 'lib', 'Windows', 'x86_64', 'C:/x;D:/y', False, ';'),
+                         ['C:/p/lib/pkgconfig', 'C:/p/share/pkgconfig', 'C:/x', 'D:/y'])
+        self.assertEqual(pkgConfigPathSep('Windows', False), ';')
+        self.assertEqual(pkgConfigPathSep('Windows', True), ':')
+        self.assertEqual(pkgConfigPathSep('Ubuntu', False), ':')
         self.assertIsNone(getArchLibDir('Darwin', 'arm64'))
         self.assertEqual(getArchLibDir('Debian', 'arm64'), 'aarch64-linux-gnu')
 

@@ -27,9 +27,12 @@ if targetDistribId == 'Windows':
 
 if libusb_fromSources:
     ARTIFACTS += [
+        # the wrapper project also installs libusb-1.0.pc, that libusb-cmake doesn't
         CMakeBuildArtifact('libusb', [],
             GitSource('https://github.com/libusb/libusb-cmake.git', 'v1.0.28-0', shallow_submodules=True, recurse_submodules=True),
-            ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON'],
+            ['-DLIBUSB_BUILD_EXAMPLES=OFF', '-DLIBUSB_BUILD_TESTING=OFF', '-DLIBUSB_ENABLE_DEBUG_LOGGING=OFF', '-DLIBUSB_BUILD_SHARED_LIBS=ON',
+             '-DLIBUSB_SOURCE_DIR={srcdir_posix}'],
+            cmakeProjectDir=findAsset('libusb', 'CMakeLists.txt')[:-len('CMakeLists.txt')],
             provides=['libusb-artifact']
         ),
     ]

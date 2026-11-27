@@ -287,10 +287,19 @@ def homebrewPrefix() -> T.Optional[str]:
     return None
 
 
+def pkgConfigPathSep(localDistrib: str, msys2: bool) -> str:
+    ''' returns the separator of the PKG_CONFIG_PATH / PKG_CONFIG_LIBDIR lists: ';' for a native pkg-config on
+        Windows (the paths contain 'C:'), ':' elsewhere and in msys2 shells
+    '''
+    if localDistrib == 'Windows' and not msys2:
+        return ';'
+    return ':'
+
+
 def pkgConfigDirs(prefix: T.Optional[str], libdir: str, targetDistrib: str, arch: str, extraPath: T.Optional[str],
-                  crossCompilation: bool = False) -> T.List[str]:
+                  crossCompilation: bool = False, sep: str = ':') -> T.List[str]:
     ''' returns the pkg-config search directories for a machine, with the ones of prefix if given, and
-        the paths of extraPath (a PKG_CONFIG_PATH like string) at the end
+        the paths of extraPath (a PKG_CONFIG_PATH like string, using sep) at the end
     '''
     ret = []
     if prefix:
@@ -313,9 +322,11 @@ def pkgConfigDirs(prefix: T.Optional[str], libdir: str, targetDistrib: str, arch
         if brewPrefix:
             ret += [f'{brewPrefix}/lib/pkgconfig', f'{brewPrefix}/share/pkgconfig']
 
-    ret.append('/usr/share/pkgconfig')
+    # no system directory with the MSVC toolchain
+    if targetDistrib != 'Windows':
+        ret.append('/usr/share/pkgconfig')
     if extraPath:
-        ret += [p for p in extraPath.split(':') if p]
+        ret += [p for p in extraPath.split(sep) if p]
 
     return ret
 
